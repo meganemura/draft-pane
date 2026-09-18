@@ -163,6 +163,27 @@ function textOf(tree: unknown): string {
   return textOf(children)
 }
 
+// The keyed Box drawn under `key` (a row, or the marker's or the Button's own wrapper inside
+// one), or undefined: read here rather than searched for by content, since a Box carries no
+// text of its own for `textOf` to find it by.
+function boxByKey(tree: unknown, key: string): { props: Record<string, unknown>; children: unknown } | undefined {
+  if (Array.isArray(tree)) {
+    for (const child of tree) {
+      const found = boxByKey(child, key)
+      if (found !== undefined) return found
+    }
+    return undefined
+  }
+  if (typeof tree !== 'object' || tree === null) return undefined
+  const type: unknown = Reflect.get(tree, 'type')
+  const props: unknown = Reflect.get(tree, 'props')
+  const children: unknown = Reflect.get(tree, 'children')
+  if (type === 'Box' && typeof props === 'object' && props !== null && Reflect.get(props, 'key') === key) {
+    return { props: props as Record<string, unknown>, children }
+  }
+  return boxByKey(children, key)
+}
+
 // Every Button in a drawn tree, keyed.
 function buttonsOf(tree: unknown): { key: string; label: string }[] {
   if (Array.isArray(tree)) return tree.flatMap(buttonsOf)
@@ -263,6 +284,31 @@ describe('mod', () => {
     await $.command.run(RUN)
 
     expect(textOf(await $.ui.render(PANE))).toBe('no open drafts')
+  })
+
+  test('with no open drafts, the line centers in a Box sized to the pane body', async ($, on) => {
+    world(on, { messages: [] })
+    await $.session.start(SESSION)
+    await $.command.run(RUN)
+
+    const tree = await $.ui.render(PANE)
+    const box = boxByKey(tree, 'empty')
+
+    expect(box?.props.width).toBe(PANE.props.bodyColumns)
+    expect(box?.props.height).toBe(PANE.props.scroll.bodyRows)
+    expect(textOf(tree)).toBe('no open drafts')
+  })
+
+  test('a zero body size (a first frame before the surface has measured) falls back to the plain line', async ($, on) => {
+    world(on, { messages: [] })
+    await $.session.start(SESSION)
+    await $.command.run(RUN)
+
+    const zeroPane: RenderInput<'Pane'> = { ...PANE, props: { ...PANE.props, scroll: { ...PANE.props.scroll, bodyRows: 0 } } }
+    const tree = await $.ui.render(zeroPane)
+
+    expect(boxByKey(tree, 'empty')).toBeUndefined()
+    expect(textOf(tree)).toBe('no open drafts')
   })
 
   test('D3 and D4 (revises D3) in the transcript draw D4 only', async ($, on) => {
