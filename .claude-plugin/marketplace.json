@@ -1,0 +1,12 @@
+{
+  "name": "draft-pane",
+  "description": "A Claude Code plugin that shows the model's newest open draft in a pane beside the transcript and sends your comments on it as one prompt.",
+  "owner": { "name": "meganemura" },
+  "plugins": [
+    {
+      "name": "draft-pane",
+      "source": "./plugin",
+      "description": "A pane beside the transcript that shows the model's newest open draft and sends your comments on it, span by span, as one prompt."
+    }
+  ]
+}
