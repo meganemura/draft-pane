@@ -58,7 +58,8 @@ type Host = {
   register: () => Promise<unknown>
   storeGet: (key: string) => Promise<unknown>
   storeSet: (key: string, value: unknown) => Promise<void>
-  focus: (key: string) => Promise<unknown>
+  focus: (key: string) => Promise<{ deny?: string }>
+  sleep: (ms: number) => Promise<void>
 }
 
 type State = {
@@ -88,11 +89,33 @@ function hostOf($: any): Host {
     storeGet: (key) => $.store.get(key),
     storeSet: (key, value) => $.store.set(key, value),
     focus: (key) => $.ui.focus({ requestId: PANE_ID, key }),
+    sleep: (ms) => $.clock.sleep(ms),
   }
 }
 
 function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
+}
+
+// A drag's release posts before the redraw that draws the comment `Input` exists: `$.ui.invalidate`
+// only schedules that redraw (at most thirty a second for the shown pane), so a `focus` call right
+// after can find no element under the key yet. The `deny` names that missing element rather than
+// any other failure, so it is safe to retry on; ten tries at 50ms apart cover the slowest redraw
+// cadence with room, without retrying a `deny` that means something else.
+async function focusSpanInput(host: Host, key: string): Promise<void> {
+  try {
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      const result = await host.focus(key)
+      if (result.deny === undefined) return
+      if (attempt < 9) {
+        await host.sleep(50)
+      } else {
+        host.log(`focus denied: ${result.deny}`)
+      }
+    }
+  } catch (error) {
+    host.log(`focus failed: ${messageOf(error)}`)
+  }
 }
 
 // The drafts still worth drawing: `state.open` less whatever a Submit or Approve already sent.
@@ -130,7 +153,7 @@ async function openIfWanted(state: State): Promise<void> {
     await host.open(false)
     state.isOpen = true
   } catch (error) {
-    host.log(`draft-pane: reopen failed: ${messageOf(error)}`)
+    host.log(`reopen failed: ${messageOf(error)}`)
   }
 }
 
@@ -151,7 +174,7 @@ async function reparse(state: State): Promise<void> {
     await openIfWanted(state)
     updateStatus(state)
   } catch (error) {
-    host.log(`draft-pane: reparse failed: ${messageOf(error)}`)
+    host.log(`reparse failed: ${messageOf(error)}`)
   }
 }
 
@@ -400,14 +423,14 @@ function draftBoxOf(ui: Ui, index: number, openDraft: OpenDraft, state: State, h
           key: `${key}:approve`,
           label: 'Approve',
           onPress: () => {
-            approve(state, host, draft).catch((error: unknown) => host.log(`draft-pane: submit failed: ${messageOf(error)}`))
+            approve(state, host, draft).catch((error: unknown) => host.log(`submit failed: ${messageOf(error)}`))
           },
         }),
         Button({
           key: `${key}:submit`,
           label: 'Submit',
           onPress: () => {
-            submit(state, host, draft).catch((error: unknown) => host.log(`draft-pane: submit failed: ${messageOf(error)}`))
+            submit(state, host, draft).catch((error: unknown) => host.log(`submit failed: ${messageOf(error)}`))
           },
         }),
         Text({ dimColor: true, children: n === 1 ? '1 comment' : `${n} comments` }),
@@ -464,7 +487,7 @@ export function register(on: On) {
   on('session.start', async ($, e, next) => {
     state.host = hostOf($)
     await state.host.register().catch((error: unknown) => {
-      state.host?.log(`draft-pane: /${COMMAND} is not available: ${messageOf(error)}`)
+      state.host?.log(`/${COMMAND} is not available: ${messageOf(error)}`)
     })
     const stored = await state.host.storeGet(STORE_KEY).catch(() => undefined)
     state.wantsOpen = stored === true
@@ -541,14 +564,18 @@ export function register(on: On) {
     host.invalidate()
 
     if (message.type === 'selected') {
-      // The `Input` may not be drawn yet when this runs; its own `autoFocus` prop is the
-      // second path to the same end, so a failure here is not the only way the person's
-      // keyboard lands on the comment field.
+      // `autoFocus` only places the ring once a site already holds the keyboard; a drag does
+      // not give the pane the keyboard by itself. The open-with-focus request below is what
+      // does: a mouse drag over the pane is the person's own act, so asking for the keyboard
+      // right here, right after it, is the moment the surface grants the request (a pane opened
+      // with `focus` gets it while the composer is empty). The `host.focus` call after that is
+      // what then puts the ring on the comment `Input` itself.
       try {
-        await host.focus(`d${elementMatch[1]}:span-input`)
+        await host.open(true)
       } catch (error) {
-        host.log(`draft-pane: focus failed: ${messageOf(error)}`)
+        host.log(`focus: open failed: ${messageOf(error)}`)
       }
+      await focusSpanInput(host, `d${elementMatch[1]}:span-input`)
     }
     return next(e)
   })
