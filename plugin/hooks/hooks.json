@@ -1,0 +1,4 @@
+{
+  "description": "One function-hooks module: draft-pane, the pane beside the transcript that shows the model's newest open draft and sends the person's comments on it as one prompt.",
+  "modules": ["./mod.ts"]
+}
