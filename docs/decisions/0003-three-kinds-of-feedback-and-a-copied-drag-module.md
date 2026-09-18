@@ -31,6 +31,18 @@ Each `Input` mirrors its text into `state.feedback` on every change and receives
 `onInput` skips `host.invalidate()`; the `Input` already shows what was typed, so a redraw on
 every keystroke is wasted work that can move the cursor under the person's hands.
 
+2026-09-18 (second entry): the body is drawn as a column of segments instead of one `Client` for
+the whole body, so a comment and its input sit right under the line they belong to, as a review
+comment in an editor does. `segments.ts` cuts `body.split('\n')` at each anchor line — the line
+holding the last character of a committed span, or of the pending selection — into segments:
+segment `k` holds the lines after the previous anchor up to and including anchor `k`; a trailing
+segment holds whatever is left. Each segment gets its own `draft-selection.ts` `Client`, keyed
+`d${i}:seg${k}`, drawing only that segment's own lines; a posted range is local to the segment,
+and `segments.ts`'s `toAbsolute` and `toLocal` are the only place an offset crosses between that
+local text and the whole body. Right under each segment: the committed spans anchored there, in
+ascending `start` order, then the pending selection's quote and `Input` when it is anchored there
+too. The whole-draft `Input` and the `Approve`/`Submit` row still sit under the last segment.
+
 ## Consequences
 
 - `claude plugin test`'s kit on 2.1.273 cannot type into an `Input`, drive a `Client`'s pointer,
@@ -43,3 +55,11 @@ every keystroke is wasted work that can move the cursor under the person's hands
   body.
 - Tried in a real terminal: a drag over an English span and over a Japanese span each highlighted
   the exact characters, and text typed into an input survived a redraw caused by a second drag.
+- 2026-09-18 (second entry): a drag cannot cross a segment boundary, because the `Client` holds
+  the pointer for one segment only. The person selects within the lines between two comments, not
+  across a line that already carries one; accepted as the plugin's stated limit, not worked
+  around.
+- 2026-09-18 (second entry): removing a comment drops its span from `Feedback.spans`, so its
+  anchor line disappears from the next `segmentsOf` call and that segment merges back into its
+  neighbor on the next redraw. No extra code keeps the two in sync; recomputing segments from
+  `feedback` on every draw does it for free.

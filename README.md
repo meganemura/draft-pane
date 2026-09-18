@@ -13,11 +13,11 @@ turns.
 ```
 D3 README, the Install section
 ## Install
-
-Run the two commands below. The first one adds the marketplace, the second one installs the plugin.
-> Run the two commands below.
-comment: [        ]
+Run the two commands below.
 [ x ] > Run the two commands below.  1 sentence is enough
+The first one adds the marketplace, the second one installs the plugin.
+> the second one installs the plugin
+comment: [        ]
 whole draft: [        ]
 [ Approve ] [ Submit ]  1 comment
 ```
@@ -54,14 +54,16 @@ To set `CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1` for each session, add it to the `en
 
 Start with `/draft-pane:draft <what to draft>`. `/draft-pane` shows or hides the pane and gives
 it keyboard focus. Drag the mouse over a span of the draft; a line with the quoted span appears
-under the draft, and under it an input labeled `comment`. Type a comment and press Enter to add
-it; press Enter with an empty input to drop the span. Type in the `whole draft` input and press
-Enter to add one comment on the whole draft; a second Enter replaces it. Press `x` beside a
-comment to remove it. Press `Submit` to send every comment, or `Approve` to send approval; both
-refuse while an input still holds text that Enter has not added. The arrow keys move between
-controls, Enter presses, Esc returns focus to the prompt box. After you show the pane once, it
-opens on its own when a draft arrives, without taking the keyboard; hide it with `/draft-pane` to
-stop that.
+right under the line it ends on, and under that an input labeled `comment`. Type a comment and
+press Enter to add it; press Enter with an empty input to drop the span. Each added comment stays
+right under the line of the words it quotes, in the order those lines appear in the draft. A
+selection cannot cross a line that already carries a comment — drag within the lines between two
+comments instead. Type in the `whole draft` input and press Enter to add one comment on the whole
+draft; a second Enter replaces it. Press `x` beside a comment to remove it. Press `Submit` to send
+every comment, or `Approve` to send approval; both refuse while an input still holds text that
+Enter has not added. The arrow keys move between controls, Enter presses, Esc returns focus to
+the prompt box. After you show the pane once, it opens on its own when a draft arrives, without
+taking the keyboard; hide it with `/draft-pane` to stop that.
 
 ## The draft block
 

@@ -253,7 +253,7 @@ describe('mod', () => {
 
     const tree = await $.ui.render(PANE)
     expect(textOf(tree)).toContain('D3 素材ライブラリの README セクション')
-    expect(clientPropsOf(tree, 'd0:body')).toEqual({ lines: ['## Install', '', 'Run `npm install libfoo`.'] })
+    expect(clientPropsOf(tree, 'd0:seg0')).toEqual({ lines: ['## Install', '', 'Run `npm install libfoo`.'] })
   })
 
   test('wanting the pane open, but no draft yet, does not open it', async ($, on) => {
@@ -386,7 +386,7 @@ describe('mod', () => {
 
     const tree = await $.ui.render(PANE)
     expect(textOf(tree)).toContain('D3')
-    expect(kept.logged.some((line) => line.startsWith('draft-pane: submit failed:'))).toBe(true)
+    expect(kept.logged.some((line) => line.startsWith("draft-pane: submit failed:"))).toBe(true)
   })
 
   test('a closed pane with an open draft posts a status line containing "open draft"', async ($, on) => {

@@ -1,15 +1,18 @@
 // draft-pane's one function-hooks module (the validator admits one per plugin). Reads the
 // ```draft blocks the model posts in the transcript, shows every one still open in a pane
 // beside it, and lets the person drag a span of the body to comment on it, or write one comment
-// on the whole draft. One Submit sends every comment as one prompt that quotes each span; one
-// Approve sends nothing but a plain approval line. The transcript is the source of truth: every
-// draft shown here is an assistant message, and every piece of feedback sent is a prompt that
-// quotes it back.
+// on the whole draft. A body is drawn as a column of segments, cut at each line that already
+// carries a comment, so a comment and its input sit right under the line they belong to; one
+// `Client` draws each segment. One Submit sends every comment as one prompt that quotes each
+// span; one Approve sends nothing but a plain approval line. The transcript is the source of
+// truth: every draft shown here is an assistant message, and every piece of feedback sent is a
+// prompt that quotes it back.
 //
 // Must NOT know about: what a draft says, or how a ```draft block or a feedback prompt is
 // written — block.ts owns that syntax, and this file only calls its exported functions; how a
 // drag maps to a character range — draft-selection.ts owns that, and this file only reads what
-// it posts.
+// it posts; how a body splits into segments or how an offset moves between a segment's own text
+// and the whole body — segments.ts owns that, and this file only calls its exported functions.
 //
 // It loads only where Claude Code has function hooks enabled. The engine's validator reads this
 // file statically, so every call on `$` is spelled `$.noun.event(...)` and `$` is handed only
@@ -27,6 +30,7 @@ import {
   hasUnsentTextOf,
   selectionMessageOf,
   shortQuoteOf,
+  withoutTrailingNewlinesOf,
   withSelection,
   withSpanCommitted,
   withSpanRemoved,
@@ -36,11 +40,12 @@ import {
   withWholeText,
 } from './feedback'
 import type { Feedback } from './feedback'
+import { anchorLineOf, segmentsOf, toAbsolute, toLocal } from './segments'
+import type { Segment } from './segments'
 
 const PANE_ID = 'draft-pane'
 const COMMAND = 'draft-pane'
 const STORE_KEY = 'wantsOpen'
-const BODY_SUFFIX = ':body'
 
 type Host = {
   messages: () => Promise<readonly SessionMessage[]>
@@ -152,6 +157,17 @@ async function reparse(state: State): Promise<void> {
 
 function feedbackOf(state: State, identity: string): Feedback {
   return state.feedback.get(identity) ?? EMPTY_FEEDBACK
+}
+
+// A draft's body cut into segments, each ending at the line under which a comment sits (its
+// anchor line): one per committed span, plus the pending selection when there is one. Called
+// from both sides of the `ui.message` handler and `draftBoxOf`, so a segment index posted by one
+// always means the same segment to the other.
+function segmentsForDraft(draft: Draft, feedback: Feedback): Segment[] {
+  const lines = draft.body.split('\n')
+  const anchorLines = feedback.spans.map((span) => anchorLineOf(lines, span))
+  if (feedback.selection !== null) anchorLines.push(anchorLineOf(lines, feedback.selection))
+  return segmentsOf(lines, anchorLines)
 }
 
 // `isSubmitting` guards a press arriving while a previous submit is still in flight. Sending
@@ -269,30 +285,24 @@ function commentRowOf(ui: Ui, key: string, quote: string, comment: string, onRem
   })
 }
 
-function draftBoxOf(ui: Ui, index: number, openDraft: OpenDraft, state: State, host: Host): RenderElement {
-  const { Box, Button, Text, Input, Client } = ui
-  const { draft, isDuplicate } = openDraft
-  const identity = identityOf(draft)
-  const feedback = feedbackOf(state, identity)
-  const key = `d${index}`
-
-  const children: RenderElement[] = [Text({ bold: true, children: `D${draft.number} ${draft.title}` })]
-  if (isDuplicate) children.push(Text({ color: 'yellow', children: 'duplicate number' }))
+// The rows drawn right under segment `k`: one per committed span anchored on its last line, in
+// ascending `start` order, then the pending selection's own quote and `Input` when it is
+// anchored there too. A span keeps its index into `feedback.spans` for its key and its `onRemove`
+// closure, even sorted here into a different display order, so removing one still removes the
+// right one.
+function segmentRowsOf(ui: Ui, key: string, draft: Draft, lines: readonly string[], segment: Segment, feedback: Feedback, state: State, host: Host, identity: string): RenderElement[] {
+  const { Box, Text, Input } = ui
+  const rows: RenderElement[] = feedback.spans
+    .map((span, spanIndex) => ({ span, spanIndex }))
+    .filter(({ span }) => anchorLineOf(lines, span) === segment.lastLine)
+    .sort((a, b) => a.span.start - b.span.start)
+    .map(({ span, spanIndex }) =>
+      commentRowOf(ui, `${key}:c${spanIndex}`, shortQuoteOf(draft.body, span), span.comment, () => onSpanRemove(state, host, identity, spanIndex)),
+    )
 
   const selection = feedback.selection
-  children.push(
-    Client({
-      key: `${key}${BODY_SUFFIX}`,
-      // A string literal, not a constant: the validator reads a Client's `module` statically
-      // and refuses any indirection, so the path is spelled out here rather than named once.
-      module: './draft-selection.ts',
-      props: { lines: draft.body.split('\n'), ...(selection === null ? {} : { armedRange: selection }) },
-      width: '100%',
-    }),
-  )
-
-  if (selection !== null) {
-    children.push(
+  if (selection !== null && anchorLineOf(lines, selection) === segment.lastLine) {
+    rows.push(
       Box({
         key: `${key}:span-input-row`,
         flexDirection: 'column',
@@ -311,13 +321,46 @@ function draftBoxOf(ui: Ui, index: number, openDraft: OpenDraft, state: State, h
       }),
     )
   }
+  return rows
+}
 
-  const commentRows: RenderElement[] = feedback.spans.map((span, spanIndex) =>
-    commentRowOf(ui, `${key}:c${spanIndex}`, shortQuoteOf(draft.body, span), span.comment, () => onSpanRemove(state, host, identity, spanIndex)),
-  )
+function draftBoxOf(ui: Ui, index: number, openDraft: OpenDraft, state: State, host: Host): RenderElement {
+  const { Box, Button, Text, Input, Client } = ui
+  const { draft, isDuplicate } = openDraft
+  const identity = identityOf(draft)
+  const feedback = feedbackOf(state, identity)
+  const key = `d${index}`
+  const lines = draft.body.split('\n')
+  const segments = segmentsForDraft(draft, feedback)
+  const selection = feedback.selection
+
+  const children: RenderElement[] = [Text({ bold: true, children: `D${draft.number} ${draft.title}` })]
+  if (isDuplicate) children.push(Text({ color: 'yellow', children: 'duplicate number' }))
+
+  segments.forEach((segment, k) => {
+    const armedRange = selection === null ? null : toLocal(segment, selection)
+    children.push(
+      Client({
+        key: `${key}:seg${k}`,
+        // A string literal, not a constant: the validator reads a Client's `module` statically
+        // and refuses any indirection, so the path is spelled out here rather than named once.
+        module: './draft-selection.ts',
+        props: { lines: segment.lines, ...(armedRange === null ? {} : { armedRange }) },
+        width: '100%',
+      }),
+    )
+    children.push(
+      Box({
+        key: `${key}:seg${k}:rows`,
+        flexDirection: 'column',
+        children: segmentRowsOf(ui, key, draft, lines, segment, feedback, state, host, identity),
+      }),
+    )
+  })
+
   if (feedback.whole !== null) {
     const whole = feedback.whole
-    commentRows.push(
+    children.push(
       Box({
         key: `${key}:whole`,
         flexDirection: 'row',
@@ -329,7 +372,6 @@ function draftBoxOf(ui: Ui, index: number, openDraft: OpenDraft, state: State, h
       }),
     )
   }
-  children.push(Box({ key: `${key}:comments`, flexDirection: 'column', children: commentRows }))
 
   children.push(
     Box({
@@ -474,21 +516,28 @@ export function register(on: On) {
 
   // A draft-selection.ts Client posted this on a drag's release ('client' origin: code sent it,
   // on nobody's behalf, so `data` is input to validate, never a fact). Its `element` key is
-  // `d${index}${BODY_SUFFIX}` (set in `draftBoxOf`), and `index` addresses `visibleOf(state)` —
-  // the same order the pane drew it in.
+  // `d${index}:seg${k}` (set in `draftBoxOf`): `index` addresses `visibleOf(state)` — the same
+  // order the pane drew it in — and `k` addresses that draft's own segments, recomputed here from
+  // its feedback with the same `segmentsForDraft` `draftBoxOf` drew from, so the two sides agree
+  // on what segment `k` means. A posted range is local to that segment's own text; `toAbsolute`
+  // is what turns it into the offsets `Feedback.selection` keeps.
   on('ui.message', { requestId: PANE_ID }, async ($, e, next) => {
     const host = state.host
-    if (host === null || !e.element.endsWith(BODY_SUFFIX)) return next(e)
-    const indexMatch = /^d(\d+)$/.exec(e.element.slice(0, -BODY_SUFFIX.length))
-    if (indexMatch === null) return next(e)
-    const openDraft = visibleOf(state)[Number(indexMatch[1])]
+    if (host === null) return next(e)
+    const elementMatch = /^d(\d+):seg(\d+)$/.exec(e.element)
+    if (elementMatch === null) return next(e)
+    const openDraft = visibleOf(state)[Number(elementMatch[1])]
     if (openDraft === undefined) return next(e)
     const message = selectionMessageOf(e.data)
     if (message === null) return next(e)
 
     const identity = identityOf(openDraft.draft)
     const feedback = feedbackOf(state, identity)
-    state.feedback.set(identity, withSelection(feedback, message.type === 'selected' ? { start: message.start, end: message.end } : null))
+    const segment = segmentsForDraft(openDraft.draft, feedback)[Number(elementMatch[2])]
+    if (segment === undefined) return next(e)
+    const absolute = message.type === 'selected' ? toAbsolute(segment, { start: message.start, end: message.end }) : null
+    const selection = absolute === null ? null : withoutTrailingNewlinesOf(openDraft.draft.body, absolute)
+    state.feedback.set(identity, withSelection(feedback, selection))
     host.invalidate()
 
     if (message.type === 'selected') {
@@ -496,7 +545,7 @@ export function register(on: On) {
       // second path to the same end, so a failure here is not the only way the person's
       // keyboard lands on the comment field.
       try {
-        await host.focus(`d${indexMatch[1]}:span-input`)
+        await host.focus(`d${elementMatch[1]}:span-input`)
       } catch (error) {
         host.log(`draft-pane: focus failed: ${messageOf(error)}`)
       }

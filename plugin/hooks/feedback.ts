@@ -90,6 +90,18 @@ export function selectionMessageOf(data: unknown): SelectionMessage | null {
   return { type: 'selected', start, end }
 }
 
+// A release at column 0 of the next line posts an `end` right after the `\n` it dragged past —
+// the person meant the line above, not the break itself. Left as is, that `\n` would become the
+// span's own anchor line (segments.ts's `anchorLineOf` reads `end - 1`) and the quote's last
+// line, so the highlight and the quote both want the words only, never the break that follows
+// them. Stops at one character so a selection that is itself a single `\n` is left alone, rather
+// than shrunk to an empty range nothing can anchor to.
+export function withoutTrailingNewlinesOf(body: string, range: Selection): Selection {
+  let end = range.end
+  while (end > range.start + 1 && body[end - 1] === '\n') end -= 1
+  return end === range.end ? range : { ...range, end }
+}
+
 // The quote line drawn above a span's Input and the first column of a comment row: the slice
 // collapsed to one line (a dragged span can cross a newline) and cut short so a long quote does
 // not crowd out the comment beside it.

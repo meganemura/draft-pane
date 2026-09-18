@@ -9,6 +9,7 @@ import {
   hasUnsentTextOf,
   selectionMessageOf,
   shortQuoteOf,
+  withoutTrailingNewlinesOf,
   withSelection,
   withSpanCommitted,
   withSpanRemoved,
@@ -185,6 +186,29 @@ describe('selectionMessageOf', () => {
   test('accepts cleared and a valid selected', () => {
     expect(selectionMessageOf({ type: 'cleared' })).toEqual({ type: 'cleared' })
     expect(selectionMessageOf({ type: 'selected', start: 2, end: 5 })).toEqual({ type: 'selected', start: 2, end: 5 })
+  })
+})
+
+describe('withoutTrailingNewlinesOf', () => {
+  test('drops a newline right at the end', () => {
+    const body = 'first line\nsecond line\n'
+    expect(withoutTrailingNewlinesOf(body, { start: 0, end: 11 })).toEqual({ start: 0, end: 10 })
+  })
+
+  test('drops two newlines in a row', () => {
+    const body = 'first line\n\nsecond line'
+    expect(withoutTrailingNewlinesOf(body, { start: 0, end: 12 })).toEqual({ start: 0, end: 10 })
+  })
+
+  test('a range not ending in a newline is unchanged', () => {
+    const body = 'first line\nsecond line'
+    const range = { start: 0, end: 10 }
+    expect(withoutTrailingNewlinesOf(body, range)).toEqual(range)
+  })
+
+  test('a one-character range that is itself a newline stays, never shrinks to empty', () => {
+    const body = 'first\n\nsecond'
+    expect(withoutTrailingNewlinesOf(body, { start: 6, end: 7 })).toEqual({ start: 6, end: 7 })
   })
 })
 
