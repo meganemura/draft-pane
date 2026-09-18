@@ -3,6 +3,20 @@
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This project has no
 stable release yet: version numbers may still change shape between releases.
 
+## [0.2.0] - 2026-09-18
+
+### Changed
+
+- Comments and the comment input sit right under the line they belong to; a selection stays
+  within the lines between two comments.
+- The empty pane centers its `no open drafts` line.
+
+### Fixed
+
+- After a drag, the comment input takes the keyboard, also when the pane opened on its own
+  without it. Before, the typed comment could land in the prompt box.
+- A drag released at the start of the next line no longer selects the line break.
+
 ## [0.1.0] - 2026-09-18
 
 ### Added

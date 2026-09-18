@@ -1,6 +1,6 @@
 {
   "name": "draft-pane",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "A pane beside the transcript that shows the model's newest open draft and sends your comments on it, span by span, as one prompt.",
   "author": { "name": "meganemura" }
 }
