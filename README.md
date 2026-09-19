@@ -82,6 +82,19 @@ number; its first line is `D<m> (revises D<n>): <title>`. The pane shows only th
 newest assistant message that has a `draft` block; an older draft leaves the pane once a later
 message posts one, answered or not.
 
+When the draft already exists as a file, the block names it instead of carrying its text:
+
+```draft
+D5: The article on pane plugins
+file: /work/notes/article.md
+```
+
+The line right after the header, `file: <path>`, makes the draft a file draft; any further lines
+in the block are ignored. The path is absolute, or relative to the working directory the session
+runs in. There is no `~` expansion: write the path out in full. On macOS, a file under a folder
+the system protects (Documents, Desktop, Downloads) can raise a permission dialog for the terminal
+application on the first read.
+
 ## The feedback prompt
 
 Pressing `Submit` sends one prompt:
@@ -97,6 +110,15 @@ Name the plugin, not "the plugin".
 
 A `> ` line quotes the span; the next line is the comment. Spans come in the order they appear in
 the draft. A comment on the whole draft comes last.
+
+For a file draft, the second line names the file the quotes came from:
+
+```
+Feedback (draft-pane) on D5:
+file: /work/notes/article.md
+> a quoted span from the file
+Shorten this sentence.
+```
 
 ## What Approve means
 

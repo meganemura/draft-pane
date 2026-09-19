@@ -6,7 +6,9 @@
 
 import type { SessionMessage } from 'claude-code'
 
-export type Draft = { number: number; title: string; body: string; revises: number | null }
+// `file`, when not null, makes this a file draft: `body` is what mod.ts last read from that
+// path (empty until the first read), not text carried in the block itself.
+export type Draft = { number: number; title: string; body: string; file: string | null; revises: number | null }
 export type OpenDraft = { draft: Draft; isDuplicate: boolean }
 export type SpanComment = { start: number; end: number; comment: string }
 
@@ -20,6 +22,9 @@ export const WHOLE_DRAFT = '(whole draft)'
 const OPEN_RE = /^(`{3,})draft[ \t]*$/
 const CLOSE_RE = /^(`+)[ \t]*$/
 const HEADER_RE = /^D(\d+)(?:\s*\(revises D(\d+)\))?:\s*(.*)$/
+// The line right after the header, trimmed: when it matches, the draft names a file instead of
+// carrying its text.
+const FILE_RE = /^file:\s*(.+)$/
 // Same shape as `${FEEDBACK_HEADER_PREFIX}<number>:`, spelled out so the pattern is visible
 // in one place rather than built from the constant at runtime.
 const FEEDBACK_LINE_RE = /^Feedback \(draft-pane\) on D(\d+):$/
@@ -36,9 +41,19 @@ function trimBlankLines(lines: readonly string[]): string[] {
   return lines.slice(start, end)
 }
 
+// A body's leading and trailing blank lines removed, an inner blank line kept — the same trim
+// `draftOf` applies to a block's own body, exported so mod.ts applies it to a file's text too:
+// a file draft's body must be trimmed the same way, or its identity would depend on which of the
+// two places did the trimming.
+export function trimmedBodyOf(text: string): string {
+  return trimBlankLines(text.split('\n')).join('\n')
+}
+
 // `blockLines` is everything between the opener and the closer (or end of text), header line
-// first. A missing or malformed header, or a body that trims away to nothing, drops the block
-// rather than failing the whole parse: a model's draft can contain a stray block.
+// first. A missing or malformed header drops the block rather than failing the whole parse: a
+// model's draft can contain a stray block. A plain draft whose body trims away to nothing is
+// dropped too, but a file draft is kept with an empty body — mod.ts fills it in on the first
+// read, and there is no text here yet to judge empty.
 function draftOf(blockLines: readonly string[]): Draft | null {
   const headerLine = blockLines[0]
   if (headerLine === undefined) return null
@@ -48,9 +63,17 @@ function draftOf(blockLines: readonly string[]): Draft | null {
   const revisesGroup = headerMatch[2]
   const revises = revisesGroup === undefined ? null : Number(revisesGroup)
   const title = (headerMatch[3] ?? '').trim()
-  const body = trimBlankLines(blockLines.slice(1)).join('\n')
+
+  const fileLine = blockLines[1]
+  const fileMatch = fileLine === undefined ? null : FILE_RE.exec(fileLine.trim())
+  if (fileMatch !== null) {
+    const file = (fileMatch[1] ?? '').trim()
+    return { number, title, body: '', file, revises }
+  }
+
+  const body = trimmedBodyOf(blockLines.slice(1).join('\n'))
   if (body === '') return null
-  return { number, title, body, revises }
+  return { number, title, body, file: null, revises }
 }
 
 // Every draft from every ```draft block in `text` (a message may carry more than one), in
@@ -168,12 +191,20 @@ export function quoteOf(text: string): string {
     .join('\n')
 }
 
-// The prompt a Submit press sends: the header, then for each span (in ascending `start` order,
-// stable, regardless of the order given) the quoted slice of `draft.body` and the comment on
-// its own line, then, when `whole` is given, one `(whole draft) <comment>` line.
+// A file draft's second line names the file the quotes came from, so the prompt is
+// self-contained without the model going back to the block.
+function fileLineOf(draft: Draft): string | null {
+  return draft.file === null ? null : `file: ${draft.file}`
+}
+
+// The prompt a Submit press sends: the header, then for a file draft the `file:` line, then for
+// each span (in ascending `start` order, stable, regardless of the order given) the quoted slice
+// of `draft.body` and the comment on its own line, then, when `whole` is given, one
+// `(whole draft) <comment>` line.
 export function feedbackTextOf(draft: Draft, spans: readonly SpanComment[], whole: string | null): string {
   const ordered = [...spans].sort((a, b) => a.start - b.start)
-  const lines: string[] = [headerOf(draft)]
+  const fileLine = fileLineOf(draft)
+  const lines: string[] = [headerOf(draft), ...(fileLine === null ? [] : [fileLine])]
   for (const span of ordered) {
     lines.push(quoteOf(draft.body.slice(span.start, span.end)))
     lines.push(span.comment)
@@ -183,5 +214,6 @@ export function feedbackTextOf(draft: Draft, spans: readonly SpanComment[], whol
 }
 
 export function approvalTextOf(draft: Draft): string {
-  return [headerOf(draft), APPROVED].join('\n')
+  const fileLine = fileLineOf(draft)
+  return [headerOf(draft), ...(fileLine === null ? [] : [fileLine]), APPROVED].join('\n')
 }

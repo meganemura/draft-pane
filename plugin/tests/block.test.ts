@@ -33,6 +33,7 @@ describe('draftsOf', () => {
         number: 3,
         title: "a made-up library's README",
         body: '## Install\n\nRun the two commands below.',
+        file: null,
         revises: null,
       },
     ])
@@ -42,14 +43,14 @@ describe('draftsOf', () => {
     const text = ['```draft', 'D4 (revises D3): a shorter Install section', 'one line body', '```'].join('\n')
 
     expect(draftsOf(text)).toEqual([
-      { number: 4, title: 'a shorter Install section', body: 'one line body', revises: 3 },
+      { number: 4, title: 'a shorter Install section', body: 'one line body', file: null, revises: 3 },
     ])
   })
 
   test('text outside a block is ignored', () => {
     const text = ['some prose before', 'D9: not a block, just text', '```draft', 'D3: title', 'body', '```', 'prose after'].join('\n')
 
-    expect(draftsOf(text)).toEqual([{ number: 3, title: 'title', body: 'body', revises: null }])
+    expect(draftsOf(text)).toEqual([{ number: 3, title: 'title', body: 'body', file: null, revises: null }])
   })
 
   test('a block whose first line is not a header is dropped', () => {
@@ -74,6 +75,7 @@ describe('draftsOf', () => {
         number: 5,
         title: 'a commit message with an example fence',
         body: 'Before running:\n```\nnpm test\n```\nThat is the whole example.',
+        file: null,
         revises: null,
       },
     ])
@@ -83,15 +85,37 @@ describe('draftsOf', () => {
     const text = ['```draft', 'D1: first', 'body one', '```', 'some prose in between', '```draft', 'D2: second', 'body two', '```'].join('\n')
 
     expect(draftsOf(text)).toEqual([
-      { number: 1, title: 'first', body: 'body one', revises: null },
-      { number: 2, title: 'second', body: 'body two', revises: null },
+      { number: 1, title: 'first', body: 'body one', file: null, revises: null },
+      { number: 2, title: 'second', body: 'body two', file: null, revises: null },
     ])
   })
 
   test('an unclosed block runs to the end of the text', () => {
     const text = ['```draft', 'D1: title', 'body line one', 'body line two'].join('\n')
 
-    expect(draftsOf(text)).toEqual([{ number: 1, title: 'title', body: 'body line one\nbody line two', revises: null }])
+    expect(draftsOf(text)).toEqual([{ number: 1, title: 'title', body: 'body line one\nbody line two', file: null, revises: null }])
+  })
+
+  test('a `file:` line right after the header makes a file draft, kept with an empty body', () => {
+    const text = ['```draft', 'D5: the article on pane plugins', 'file: /work/notes/article.md', '```'].join('\n')
+
+    expect(draftsOf(text)).toEqual([
+      { number: 5, title: 'the article on pane plugins', body: '', file: '/work/notes/article.md', revises: null },
+    ])
+  })
+
+  test('a file block ignores any lines after the `file:` line', () => {
+    const text = ['```draft', 'D5: the article on pane plugins', 'file: /work/notes/article.md', 'this line is ignored', '```'].join('\n')
+
+    expect(draftsOf(text)).toEqual([
+      { number: 5, title: 'the article on pane plugins', body: '', file: '/work/notes/article.md', revises: null },
+    ])
+  })
+
+  test('a block with no `file:` line is a plain draft, `file` is null', () => {
+    const text = ['```draft', 'D1: title', 'body', '```'].join('\n')
+
+    expect(draftsOf(text)[0]?.file).toBeNull()
   })
 })
 
@@ -205,7 +229,7 @@ describe('openDraftsOf', () => {
 })
 
 describe('feedbackTextOf and approvalTextOf', () => {
-  const draft = { number: 3, title: "a made-up library's README", body: 'Run the two commands below.\nthe second one installs the plugin', revises: null }
+  const draft = { number: 3, title: "a made-up library's README", body: 'Run the two commands below.\nthe second one installs the plugin', file: null, revises: null }
 
   test('two span comments plus one whole comment produce the exact text, spans sorted by start', () => {
     const spans = [
@@ -232,14 +256,14 @@ describe('feedbackTextOf and approvalTextOf', () => {
   })
 
   test('a span over text containing CJK characters is quoted as the exact substring', () => {
-    const cjkDraft = { number: 7, title: 'タイトル', body: 'これはテストです。', revises: null }
+    const cjkDraft = { number: 7, title: 'タイトル', body: 'これはテストです。', file: null, revises: null }
     const spans = [{ start: 3, end: 6, comment: 'ここを直して' }]
 
     expect(feedbackTextOf(cjkDraft, spans, null)).toBe([headerOf(cjkDraft), '> テスト', 'ここを直して'].join('\n'))
   })
 
   test('a span that includes a newline puts "> " on each quoted line', () => {
-    const multilineDraft = { number: 8, title: 'title', body: 'line one\nline two', revises: null }
+    const multilineDraft = { number: 8, title: 'title', body: 'line one\nline two', file: null, revises: null }
     const spans = [{ start: 0, end: multilineDraft.body.length, comment: 'a comment on both lines' }]
 
     expect(feedbackTextOf(multilineDraft, spans, null)).toBe([headerOf(multilineDraft), '> line one', '> line two', 'a comment on both lines'].join('\n'))
@@ -247,5 +271,20 @@ describe('feedbackTextOf and approvalTextOf', () => {
 
   test('approvalTextOf produces the header then "(approved)"', () => {
     expect(approvalTextOf(draft)).toBe('Feedback (draft-pane) on D3:\n(approved)')
+  })
+
+  test('a file draft carries a `file:` line right after the header, in both feedbackTextOf and approvalTextOf', () => {
+    const fileDraft = { number: 5, title: 'the article on pane plugins', body: 'Run the two commands below.', file: '/work/notes/article.md', revises: null }
+    const spans = [{ start: 0, end: 27, comment: 'a comment' }]
+
+    expect(feedbackTextOf(fileDraft, spans, null)).toBe(
+      [headerOf(fileDraft), 'file: /work/notes/article.md', '> Run the two commands below.', 'a comment'].join('\n'),
+    )
+    expect(approvalTextOf(fileDraft)).toBe([headerOf(fileDraft), 'file: /work/notes/article.md', APPROVED].join('\n'))
+  })
+
+  test('a plain draft carries no `file:` line', () => {
+    expect(feedbackTextOf(draft, [], '全体にもう少し短く')).not.toContain('file:')
+    expect(approvalTextOf(draft)).not.toContain('file:')
   })
 })

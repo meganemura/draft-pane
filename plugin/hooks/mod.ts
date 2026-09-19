@@ -8,6 +8,12 @@
 // truth: every draft shown here is an assistant message, and every piece of feedback sent is a
 // prompt that quotes it back.
 //
+// A block may name a file instead of carrying the draft's text (block.ts's `Draft.file`). Every
+// `reparse` rereads that file for each open file draft and fills `draft.body` from it, so the
+// pane always shows what is on disk as of the newest parse; a read failure is kept in
+// `state.readErrors` and drawn in place of the body rather than logged, since it is the person's
+// to see, not the operator's.
+//
 // Must NOT know about: what a draft says, or how a ```draft block or a feedback prompt is
 // written — block.ts owns that syntax, and this file only calls its exported functions; how a
 // drag maps to a character range — draft-selection.ts owns that, and this file only reads what
@@ -22,7 +28,7 @@
 // alone and never reads the transcript itself.
 
 import type { Elements, On, RenderElement, SessionMessage } from 'claude-code'
-import { approvalTextOf, feedbackTextOf, identityOf, openDraftsOf } from './block'
+import { approvalTextOf, feedbackTextOf, identityOf, openDraftsOf, trimmedBodyOf } from './block'
 import type { Draft, OpenDraft } from './block'
 import {
   EMPTY_FEEDBACK,
@@ -60,6 +66,7 @@ type Host = {
   storeSet: (key: string, value: unknown) => Promise<void>
   focus: (key: string) => Promise<{ deny?: string }>
   sleep: (ms: number) => Promise<void>
+  readFile: (path: string) => Promise<string>
 }
 
 type State = {
@@ -67,11 +74,17 @@ type State = {
   isOpen: boolean
   wantsOpen: boolean
   open: OpenDraft[]
+  // The session's working directory (`e.cwd` at `session.start`), the base a file draft's
+  // relative path reads against.
+  cwd: string
   // A draft's pending feedback, by identity (block.ts's `identityOf`).
   feedback: Map<string, Feedback>
   // Identities a Submit or Approve already sent, this process only (see `submit`'s own note).
   sent: Set<string>
   isSubmitting: boolean
+  // A file draft's read failure, by identity, computed from the draft as left after the failed
+  // read (empty body). Drawn in place of the body; cleared once that identity is no longer open.
+  readErrors: Map<string, string>
 }
 
 // The host is a bundle of closures over `$`, built once at `session.start`, so the rest of this
@@ -90,6 +103,7 @@ function hostOf($: any): Host {
     storeSet: (key, value) => $.store.set(key, value),
     focus: (key) => $.ui.focus({ requestId: PANE_ID, key }),
     sleep: (ms) => $.clock.sleep(ms),
+    readFile: (path) => $.fs.read(path),
   }
 }
 
@@ -157,18 +171,39 @@ async function openIfWanted(state: State): Promise<void> {
   }
 }
 
-// Re-reads the transcript into `state.open`, drops any pending feedback whose draft is no
-// longer open (approved, submitted or gone from the transcript, on some other path), and
-// redraws. Wrapped whole in a try/catch: a hook is fail-open, so a parse failure must not
-// vanish silently — it goes to `host.log` once instead.
+// A file draft's body read fresh from disk, in parallel with every other open file draft's, so
+// one missing file does not delay or fail the rest. Mutates `draft.body` in place (the draft is
+// this `reparse`'s own, freshly parsed, so nothing else holds a reference yet) and records or
+// clears `state.readErrors` under the identity that body leaves the draft with.
+async function readFileDraft(state: State, host: Host, draft: Draft): Promise<void> {
+  const path = draft.file
+  if (path === null) return
+  try {
+    const text = await host.readFile(path)
+    draft.body = trimmedBodyOf(text)
+    state.readErrors.delete(identityOf(draft))
+  } catch (error) {
+    draft.body = ''
+    state.readErrors.set(identityOf(draft), messageOf(error))
+  }
+}
+
+// Re-reads the transcript into `state.open`, rereads every open file draft's file, drops any
+// pending feedback or read error whose draft is no longer open (approved, submitted or gone from
+// the transcript, on some other path), and redraws. Wrapped whole in a try/catch: a hook is
+// fail-open, so a parse failure must not vanish silently — it goes to `host.log` once instead.
 async function reparse(state: State): Promise<void> {
   const host = state.host
   if (host === null) return
   try {
     state.open = openDraftsOf(await host.messages())
+    await Promise.all(state.open.map((od) => readFileDraft(state, host, od.draft)))
     const openIdentities = new Set(state.open.map((od) => identityOf(od.draft)))
     for (const identity of state.feedback.keys()) {
       if (!openIdentities.has(identity)) state.feedback.delete(identity)
+    }
+    for (const identity of state.readErrors.keys()) {
+      if (!openIdentities.has(identity)) state.readErrors.delete(identity)
     }
     host.invalidate()
     await openIfWanted(state)
@@ -353,12 +388,26 @@ function draftBoxOf(ui: Ui, index: number, openDraft: OpenDraft, state: State, h
   const identity = identityOf(draft)
   const feedback = feedbackOf(state, identity)
   const key = `d${index}`
-  const lines = draft.body.split('\n')
-  const segments = segmentsForDraft(draft, feedback)
-  const selection = feedback.selection
 
   const children: RenderElement[] = [Text({ bold: true, children: `D${draft.number} ${draft.title}` })]
   if (isDuplicate) children.push(Text({ color: 'yellow', children: 'duplicate number' }))
+
+  if (draft.file !== null) {
+    children.push(Text({ dimColor: true, children: `file: ${draft.file}` }))
+    const readError = state.readErrors.get(identity)
+    if (readError !== undefined) {
+      children.push(Text({ color: 'red', children: `cannot read the file: ${readError}` }))
+      return Box({ key, flexDirection: 'column', rowGap: 1, children })
+    }
+    if (draft.body === '') {
+      children.push(Text({ children: 'the file is empty' }))
+      return Box({ key, flexDirection: 'column', rowGap: 1, children })
+    }
+  }
+
+  const lines = draft.body.split('\n')
+  const segments = segmentsForDraft(draft, feedback)
+  const selection = feedback.selection
 
   segments.forEach((segment, k) => {
     const armedRange = selection === null ? null : toLocal(segment, selection)
@@ -479,13 +528,16 @@ export function register(on: On) {
     isOpen: false,
     wantsOpen: false,
     open: [],
+    cwd: '',
     feedback: new Map(),
     sent: new Set(),
     isSubmitting: false,
+    readErrors: new Map(),
   }
 
   on('session.start', async ($, e, next) => {
     state.host = hostOf($)
+    state.cwd = e.cwd
     await state.host.register().catch((error: unknown) => {
       state.host?.log(`/${COMMAND} is not available: ${messageOf(error)}`)
     })

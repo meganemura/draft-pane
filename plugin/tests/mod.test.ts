@@ -47,6 +47,12 @@ const D4_REVISION: SessionMessage = assistant(
   ['```draft', 'D4 (revises D3): a made-up cache invalidation commit message, v2', 'Invalidate the loan cache on write and on delete.', '```'].join('\n'),
 )
 
+// A file draft naming a made-up note that lives outside the transcript.
+const D5_FILE_DRAFT: SessionMessage = assistant(['```draft', 'D5: a made-up article on pane plugins', 'file: /work/notes/article.md', '```'].join('\n'))
+
+// A file draft naming a path the world's `files` option never seeds, for the read-failure path.
+const D5_MISSING_FILE_DRAFT: SessionMessage = assistant(['```draft', 'D5: a made-up article, file gone missing', 'file: /work/notes/missing.md', '```'].join('\n'))
+
 // Two drafts, same number, different bodies, both in the one message that counts under the
 // newest-message rule: not one draft repeated, but two the model wrote under a clashing number.
 const DUPLICATES: SessionMessage = assistant(
@@ -69,6 +75,9 @@ type WorldOptions = {
   // Leaves `prompt.submit` with nothing answering it, so `host.submit` rejects for real (the
   // engine's own "no implementation for prompt.submit") instead of a stub simulating a failure.
   noSubmit?: boolean
+  // A file draft's `$.fs.read` reads from here, by path; a path with no entry rejects, the way
+  // a missing file does for real.
+  files?: Record<string, string>
 }
 
 // The world beneath the module: a transcript (replaceable, for `turn.complete`), a store seeded
@@ -129,6 +138,13 @@ function world(on: On, options: WorldOptions = {}) {
   on('store.set', ($, e) => {
     store.set(e.key, e.value)
     return { value: undefined }
+  })
+
+  const files = new Map<string, string>(Object.entries(options.files ?? {}))
+  on('fs.read', ($, e) => {
+    const text = files.get(e.path)
+    if (text === undefined) throw new Error(`no such file: ${e.path}`)
+    return { value: text }
   })
 
   return {
@@ -394,5 +410,41 @@ describe('mod', () => {
     await $.session.start(SESSION)
 
     expect(kept.statuses.at(-1)).toContain('open draft')
+  })
+
+  test('a file draft reads its file on reparse and draws its lines, with a dim file: line', async ($, on) => {
+    world(on, {
+      store: { [STORE_KEY]: true },
+      messages: [D5_FILE_DRAFT],
+      files: { '/work/notes/article.md': '## Pane plugins\n\nSome article text.' },
+    })
+
+    await $.session.start(SESSION)
+
+    const tree = await $.ui.render(PANE)
+    expect(textOf(tree)).toContain('file: /work/notes/article.md')
+    expect(clientPropsOf(tree, 'd0:seg0')).toEqual({ lines: ['## Pane plugins', '', 'Some article text.'] })
+  })
+
+  test('a file draft whose file cannot be read draws the error and no Client', async ($, on) => {
+    world(on, { store: { [STORE_KEY]: true }, messages: [D5_MISSING_FILE_DRAFT] })
+
+    await $.session.start(SESSION)
+
+    const tree = await $.ui.render(PANE)
+    expect(textOf(tree)).toContain('cannot read the file:')
+    expect(clientPropsOf(tree, 'd0:seg0')).toBeUndefined()
+  })
+
+  test('pressing Approve on a file draft sends the header, the file: line and (approved)', async ($, on) => {
+    const kept = world(on, { messages: [D5_FILE_DRAFT], files: { '/work/notes/article.md': 'Some article text.' } })
+    await $.session.start(SESSION)
+    await $.command.run(RUN)
+    await $.ui.render(PANE)
+
+    await $.ui.press({ plugin: PLUGIN, key: 'd0:approve' })
+    await settle()
+
+    expect(kept.submittedTexts.at(-1)).toBe('Feedback (draft-pane) on D5:\nfile: /work/notes/article.md\n(approved)')
   })
 })
