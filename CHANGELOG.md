@@ -3,6 +3,14 @@
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This project has no
 stable release yet: version numbers may still change shape between releases.
 
+## [0.4.0] - 2026-09-19
+
+### Changed
+
+- The whole-draft comment field opens from a `whole draft` button, instead of being drawn all the
+  time. While an input field was on screen from the start, one terminal setup received no mouse
+  events at all.
+
 ## [0.3.0] - 2026-09-19
 
 ### Added
