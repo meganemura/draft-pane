@@ -42,6 +42,7 @@ import {
   withSpanRemoved,
   withSpanText,
   withWholeCommitted,
+  withWholeOpen,
   withWholeRemoved,
   withWholeText,
 } from './feedback'
@@ -111,12 +112,13 @@ function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
 
-// A drag's release posts before the redraw that draws the comment `Input` exists: `$.ui.invalidate`
-// only schedules that redraw (at most thirty a second for the shown pane), so a `focus` call right
-// after can find no element under the key yet. The `deny` names that missing element rather than
-// any other failure, so it is safe to retry on; ten tries at 50ms apart cover the slowest redraw
-// cadence with room, without retrying a `deny` that means something else.
-async function focusSpanInput(host: Host, key: string): Promise<void> {
+// A drag's release, or a `whole draft` button press, posts before the redraw that draws the
+// comment `Input` exists: `$.ui.invalidate` only schedules that redraw (at most thirty a second
+// for the shown pane), so a `focus` call right after can find no element under the key yet. The
+// `deny` names that missing element rather than any other failure, so it is safe to retry on; ten
+// tries at 50ms apart cover the slowest redraw cadence with room, without retrying a `deny` that
+// means something else.
+async function focusInput(host: Host, key: string): Promise<void> {
   try {
     for (let attempt = 0; attempt < 10; attempt += 1) {
       const result = await host.focus(key)
@@ -329,6 +331,21 @@ function onWholeRemove(state: State, host: Host, identity: string): void {
   host.invalidate()
 }
 
+// Behind the `whole draft` button: opens the field the same way a drag opens the span one — ask
+// for the keyboard, then move the ring onto the `Input` the next redraw will draw. `host.open`'s
+// own failure is logged and swallowed, same as `ui.message`'s drag handler, so a denied request
+// leaves the field open and drawn, just without focus.
+async function openWholeInput(state: State, host: Host, identity: string, key: string): Promise<void> {
+  state.feedback.set(identity, withWholeOpen(feedbackOf(state, identity), true))
+  host.invalidate()
+  try {
+    await host.open(true)
+  } catch (error) {
+    host.log(`focus: open failed: ${messageOf(error)}`)
+  }
+  await focusInput(host, key)
+}
+
 // The real element types, so the typecheck refuses a prop the engine would refuse. One unknown
 // prop drops the whole tree with no message. `Text` takes no `key`.
 type Ui = Pick<Elements['terminal'], 'Box' | 'Button' | 'Text' | 'Input' | 'Client'>
@@ -445,21 +462,29 @@ function draftBoxOf(ui: Ui, index: number, openDraft: OpenDraft, state: State, h
     )
   }
 
-  children.push(
-    Box({
-      key: `${key}:whole-input-row`,
-      children: [
-        Input({
-          key: `${key}:whole-input`,
-          label: 'whole draft',
-          placeholder: 'comment on the whole draft',
-          value: feedback.wholeText,
-          onInput: (value) => onWholeTextInput(state, host, identity, value),
-          onSubmit: (value) => onWholeTextSubmit(state, host, identity, value),
-        }),
-      ],
-    }),
-  )
+  // Drawn only while `feedback.wholeOpen` is true, not from the first render: a real-terminal
+  // round measured that, with an `Input` on screen from the start, no mouse event reached Claude
+  // Code at all, in this pane or in the transcript, and that a pane holding only `Button` and
+  // `Text` (grilling-pane's) was unaffected. The `whole draft` button below opens the field; Enter
+  // closes it again, so at most one draft's `Input` is ever on screen.
+  if (feedback.wholeOpen) {
+    children.push(
+      Box({
+        key: `${key}:whole-input-row`,
+        children: [
+          Input({
+            key: `${key}:whole-input`,
+            label: 'whole draft',
+            placeholder: 'comment on the whole draft',
+            value: feedback.wholeText,
+            autoFocus: true,
+            onInput: (value) => onWholeTextInput(state, host, identity, value),
+            onSubmit: (value) => onWholeTextSubmit(state, host, identity, value),
+          }),
+        ],
+      }),
+    )
+  }
 
   const n = commentCountOf(feedback)
   children.push(
@@ -468,6 +493,13 @@ function draftBoxOf(ui: Ui, index: number, openDraft: OpenDraft, state: State, h
       flexDirection: 'row',
       columnGap: 1,
       children: [
+        Button({
+          key: `${key}:whole-button`,
+          label: 'whole draft',
+          onPress: () => {
+            openWholeInput(state, host, identity, `${key}:whole-input`).catch((error: unknown) => host.log(`focus failed: ${messageOf(error)}`))
+          },
+        }),
         Button({
           key: `${key}:approve`,
           label: 'Approve',
@@ -627,7 +659,7 @@ export function register(on: On) {
       } catch (error) {
         host.log(`focus: open failed: ${messageOf(error)}`)
       }
-      await focusSpanInput(host, `d${elementMatch[1]}:span-input`)
+      await focusInput(host, `d${elementMatch[1]}:span-input`)
     }
     return next(e)
   })

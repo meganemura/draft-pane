@@ -43,6 +43,16 @@ local text and the whole body. Right under each segment: the committed spans anc
 ascending `start` order, then the pending selection's quote and `Input` when it is anchored there
 too. The whole-draft `Input` and the `Approve`/`Submit` row still sit under the last segment.
 
+2026-09-19: the whole-draft `Input` opens on a `whole draft` button press, instead of sitting on
+screen from the start of every render. A real-terminal round measured that, while the pane held
+that `Input` from the first frame, no mouse event reached Claude Code at all, in the pane or in
+the transcript; closing the pane restored the mouse. grilling-pane's pane, which draws only
+`Button` and `Text`, showed nothing of the kind. The button sets `Feedback.wholeOpen`, asks for
+the keyboard, and moves the ring onto the `Input` the same way a drag does onto the span one;
+Enter closes the field again, sent or not, so at most one draft's whole-draft `Input` is ever
+drawn. The span `Input` keeps its own behavior: it is drawn right after a drag and disappears on
+Enter, never on screen before a selection exists.
+
 ## Consequences
 
 - `claude plugin test`'s kit on 2.1.273 cannot type into an `Input`, drive a `Client`'s pointer,
@@ -63,3 +73,6 @@ too. The whole-draft `Input` and the `Approve`/`Submit` row still sit under the 
   anchor line disappears from the next `segmentsOf` call and that segment merges back into its
   neighbor on the next redraw. No extra code keeps the two in sync; recomputing segments from
   `feedback` on every draw does it for free.
+- 2026-09-19: the cause of the lost mouse events is not yet known — only that it correlates with
+  an `Input` present before any typing starts. If a later terminal round finds the same loss with
+  the button in place, the cause is something else and this decision should be revisited.

@@ -215,6 +215,21 @@ function buttonsOf(tree: unknown): { key: string; label: string }[] {
   return buttonsOf(children)
 }
 
+// Every `Input` in a drawn tree, keyed: used to check the pane holds none until the person asks
+// for one (the measured mouse loss the `whole draft` button exists to avoid — see mod.ts).
+function inputsOf(tree: unknown): { key: string }[] {
+  if (Array.isArray(tree)) return tree.flatMap(inputsOf)
+  if (typeof tree !== 'object' || tree === null) return []
+  const type: unknown = Reflect.get(tree, 'type')
+  const props: unknown = Reflect.get(tree, 'props')
+  const children: unknown = Reflect.get(tree, 'children')
+  if (type === 'Input') {
+    const key = typeof props === 'object' && props ? Reflect.get(props, 'key') : undefined
+    return [{ key: typeof key === 'string' ? key : '' }]
+  }
+  return inputsOf(children)
+}
+
 // A `Client` leaf's own `props`, read by its key out of a rendered tree (not searched for by
 // content, since a Client carries no text of its own for `textOf` to find it by).
 function clientPropsOf(tree: unknown, key: string): unknown {
@@ -374,6 +389,26 @@ describe('mod', () => {
 
     expect(kept.submittedTexts).toEqual([])
     expect(kept.statuses.at(-1)).toBe('add a comment or press Approve before Submit')
+  })
+
+  test('the initial render of a draft holds no Input', async ($, on) => {
+    world(on, { messages: [D3_DRAFT] })
+    await $.session.start(SESSION)
+    await $.command.run(RUN)
+
+    expect(inputsOf(await $.ui.render(PANE))).toEqual([])
+  })
+
+  test('pressing the whole draft button opens the whole-draft Input on the next render', async ($, on) => {
+    world(on, { messages: [D3_DRAFT] })
+    await $.session.start(SESSION)
+    await $.command.run(RUN)
+    await $.ui.render(PANE)
+
+    await $.ui.press({ plugin: PLUGIN, key: 'd0:whole-button' })
+    await settle()
+
+    expect(inputsOf(await $.ui.render(PANE))).toEqual([{ key: 'd0:whole-input' }])
   })
 
   test('a drop from prompt.submit on Approve leaves the draft drawn', async ($, on) => {

@@ -18,8 +18,7 @@ Run the two commands below.
 The first one adds the marketplace, the second one installs the plugin.
 > the second one installs the plugin
 comment: [        ]
-whole draft: [        ]
-[ Approve ] [ Submit ]  1 comment
+[ whole draft ] [ Approve ] [ Submit ]  1 comment
 ```
 
 ## Requirements
@@ -58,8 +57,9 @@ right under the line it ends on, and under that an input labeled `comment`. Type
 press Enter to add it; press Enter with an empty input to drop the span. Each added comment stays
 right under the line of the words it quotes, in the order those lines appear in the draft. A
 selection cannot cross a line that already carries a comment — drag within the lines between two
-comments instead. Type in the `whole draft` input and press Enter to add one comment on the whole
-draft; a second Enter replaces it. Press `x` beside a comment to remove it. Press `Submit` to send
+comments instead. Press `whole draft` to open the field for one comment on the whole draft, type,
+and press Enter to add it; pressing the button again and typing a second time replaces it. Press
+`x` beside a comment to remove it. Press `Submit` to send
 every comment, or `Approve` to send approval; both refuse while an input still holds text that
 Enter has not added. The arrow keys move between controls, Enter presses, Esc returns focus to
 the prompt box. After you show the pane once, it opens on its own when a draft arrives, without

@@ -15,6 +15,7 @@ import {
   withSpanRemoved,
   withSpanText,
   withWholeCommitted,
+  withWholeOpen,
   withWholeRemoved,
   withWholeText,
 } from '../hooks/feedback'
@@ -44,6 +45,7 @@ describe('withSpanCommitted', () => {
       spans: [{ start: 2, end: 8, comment: 'looks off' }],
       whole: null,
       wholeText: '',
+      wholeOpen: false,
     })
   })
 
@@ -105,11 +107,30 @@ describe('withWholeCommitted', () => {
     expect(withWholeCommitted(once, '   ')).toEqual(EMPTY_FEEDBACK)
   })
 
+  test('closes the field, whether or not the text was blank', () => {
+    const open = withWholeOpen(EMPTY_FEEDBACK, true)
+    expect(withWholeCommitted(open, 'a comment').wholeOpen).toBe(false)
+    expect(withWholeCommitted(open, '   ').wholeOpen).toBe(false)
+  })
+
   test('leaves the input object unchanged', () => {
     const before = withWholeText(EMPTY_FEEDBACK, 'typing')
     const snapshot = { ...before }
     withWholeCommitted(before, 'done')
     expect(before).toEqual(snapshot)
+  })
+})
+
+describe('withWholeOpen', () => {
+  test('sets wholeOpen, leaving the rest untouched', () => {
+    expect(withWholeOpen(EMPTY_FEEDBACK, true)).toEqual({ ...EMPTY_FEEDBACK, wholeOpen: true })
+    expect(withWholeOpen(withWholeOpen(EMPTY_FEEDBACK, true), false)).toEqual(EMPTY_FEEDBACK)
+  })
+
+  test('leaves the input object unchanged', () => {
+    const snapshot = { ...EMPTY_FEEDBACK }
+    withWholeOpen(EMPTY_FEEDBACK, true)
+    expect(EMPTY_FEEDBACK).toEqual(snapshot)
   })
 })
 

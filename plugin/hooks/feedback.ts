@@ -19,9 +19,13 @@ export type Feedback = {
   spans: SpanComment[]
   whole: string | null
   wholeText: string
+  // True while the whole-draft `Input` is on screen: drawn on a `whole draft` button press, and
+  // closed again on Enter (empty or not). Kept false the rest of the time so the pane holds no
+  // `Input` until the person asks for one — see mod.ts's own note on why.
+  wholeOpen: boolean
 }
 
-export const EMPTY_FEEDBACK: Feedback = { selection: null, spanText: '', spans: [], whole: null, wholeText: '' }
+export const EMPTY_FEEDBACK: Feedback = { selection: null, spanText: '', spans: [], whole: null, wholeText: '', wholeOpen: false }
 
 export function withSelection(feedback: Feedback, selection: Selection | null): Feedback {
   return { ...feedback, selection, spanText: '' }
@@ -56,11 +60,16 @@ export function withWholeText(feedback: Feedback, text: string): Feedback {
   return { ...feedback, wholeText: text }
 }
 
+export function withWholeOpen(feedback: Feedback, open: boolean): Feedback {
+  return { ...feedback, wholeOpen: open }
+}
+
 // `whole` holds at most one comment: a second Enter replaces the first rather than adding a
-// second. An empty Enter removes it.
+// second. An empty Enter removes it. Enter always closes the field, sent or not, so the `Input`
+// never lingers once the person has said what they meant to say.
 export function withWholeCommitted(feedback: Feedback, text: string): Feedback {
   const trimmed = text.trim()
-  return { ...feedback, whole: trimmed === '' ? null : trimmed, wholeText: '' }
+  return { ...feedback, whole: trimmed === '' ? null : trimmed, wholeText: '', wholeOpen: false }
 }
 
 export function withWholeRemoved(feedback: Feedback): Feedback {
