@@ -3,6 +3,14 @@
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This project has no
 stable release yet: version numbers may still change shape between releases.
 
+## [0.3.0] - 2026-09-19
+
+### Added
+
+- A draft block may name a file instead of carrying its text: a `file:` line right after the
+  header. The pane rereads the file on every reparse, and Submit and Approve send the same
+  `file:` line so the prompt names the file the quotes came from.
+
 ## [0.2.0] - 2026-09-18
 
 ### Changed
