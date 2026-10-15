@@ -44,6 +44,12 @@ fixtures use invented drafts, never a real project's text.
   prop drops the whole tree without a message. Type the element constructors
   with `Elements['terminal' | 'desktop']`, the two surfaces the pane draws
   on, so the compiler catches it.
+- The terminal and the desktop draw different trees from the same state.
+  `mod.ts` draws the terminal tree. `desktop.ts` draws the desktop tree with
+  `Svg`, `Markdown` and `Code` too, typed with `Elements['desktop']`. Do not
+  change the terminal tree for a desktop feature. Keep the keys of the
+  `Client`s, the comment inputs, `Approve` and `Submit` the same on both
+  surfaces, because `ui.message` and the focus calls use them.
 - Tests are `plugin/tests/*.test.ts`, run with
   `CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1 claude plugin test plugin`. They stub
   `session.messages`, `prompt.submit`, `ui.status` and `store`. The block

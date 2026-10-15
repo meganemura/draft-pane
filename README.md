@@ -57,6 +57,20 @@ scope with the commands above loads there too. `/plugin` does not run in the des
 install from the app, click + beside the prompt box, then Plugins, then Add marketplace with
 `meganemura/draft-pane`, then Add plugin.
 
+On the desktop, the pane uses what the app can draw:
+
+- Each draft is a card with its number, its title, and its line, word and character counts.
+- Three views of the draft: `Comment` (drag over the text to comment, as on the terminal),
+  `Preview` (the draft drawn as markdown; a file draft that is not markdown or text is drawn as
+  code with syntax colors), and `Changes from D<n>` (the diff against the draft that this one
+  revises, when both are in the transcript and neither is a file draft).
+- A revision shows a trail of the drafts before it. Put the pointer on a dot to see its title.
+- A bar under the tabs shows where the comments fall in the draft. Put the pointer on a mark to
+  see its comment.
+- Each comment is a card with a `Remove` button. A file draft links to its file.
+
+The terminal pane stays as described in [Use](#use).
+
 The desktop app takes no `--plugin-dir`. To develop against a checkout there, set these in the
 `env` of `~/.claude/settings.json`:
 

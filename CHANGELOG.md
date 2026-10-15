@@ -9,6 +9,12 @@ stable release yet: version numbers may still change shape between releases.
 
 - The pane draws in the Code tab of Claude Code Desktop, the drag-to-comment `Client` included.
   Before, the desktop showed the pane with nothing in it.
+- On Claude Code Desktop, the pane draws a richer tree than on the terminal. Each draft is a card
+  with its number, title and line, word and character counts. A `Preview` view draws the draft as
+  markdown, or a code file with syntax colors. A revision shows its trail of earlier drafts and a
+  `Changes` view with the diff against the draft that it revises. A bar shows where the comments
+  fall in the draft, with each comment as a tooltip. Comments are cards with a `Remove` button. A
+  file draft links to its file. The terminal pane does not change.
 
 ## [0.4.0] - 2026-09-19
 
