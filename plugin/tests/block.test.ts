@@ -7,11 +7,13 @@ import { describe, expect, test, tier } from 'claude-code/testing'
 import {
   APPROVED,
   approvalTextOf,
+  draftsByNumberOf,
   draftsOf,
   feedbackNumbersOf,
   feedbackTextOf,
   headerOf,
   openDraftsOf,
+  revisionTrailOf,
 } from '../hooks/block'
 
 tier('user')
@@ -286,5 +288,37 @@ describe('feedbackTextOf and approvalTextOf', () => {
   test('a plain draft carries no `file:` line', () => {
     expect(feedbackTextOf(draft, [], '全体にもう少し短く')).not.toContain('file:')
     expect(approvalTextOf(draft)).not.toContain('file:')
+  })
+})
+
+describe('draftsByNumberOf and revisionTrailOf', () => {
+  const d1 = ['```draft', 'D1: a made-up note', 'one', '```'].join('\n')
+  const d2 = ['```draft', 'D2 (revises D1): a made-up note, v2', 'two', '```'].join('\n')
+  const d3 = ['```draft', 'D3 (revises D2): a made-up note, v3', 'three', '```'].join('\n')
+  const asAssistant = (text: string) => ({ role: 'assistant' as const, text, toolUses: [] })
+
+  test('maps every draft in every assistant message by number, the latest one winning', () => {
+    const again = ['```draft', 'D1: a made-up note, posted again', 'one again', '```'].join('\n')
+    const byNumber = draftsByNumberOf([asAssistant(d1), { role: 'user', text: d2, toolUses: [] }, asAssistant(again)])
+    expect([...byNumber.keys()]).toEqual([1])
+    expect(byNumber.get(1)?.body).toBe('one again')
+  })
+
+  test('walks the revises chain back to its start, oldest first', () => {
+    const byNumber = draftsByNumberOf([asAssistant(d1), asAssistant(d2), asAssistant(d3)])
+    const d3Draft = byNumber.get(3) as NonNullable<ReturnType<typeof byNumber.get>>
+    expect(revisionTrailOf(d3Draft, byNumber).map((draft) => draft.number)).toEqual([1, 2, 3])
+  })
+
+  test('stops at a number it does not have, and at a loop', () => {
+    const byNumber = draftsByNumberOf([asAssistant(d3)])
+    const d3Draft = byNumber.get(3) as NonNullable<ReturnType<typeof byNumber.get>>
+    expect(revisionTrailOf(d3Draft, byNumber).map((draft) => draft.number)).toEqual([3])
+
+    const loopA = ['```draft', 'D5 (revises D6): a', 'a', '```'].join('\n')
+    const loopB = ['```draft', 'D6 (revises D5): b', 'b', '```'].join('\n')
+    const loop = draftsByNumberOf([asAssistant(loopA + '\n' + loopB)])
+    const d6Draft = loop.get(6) as NonNullable<ReturnType<typeof loop.get>>
+    expect(revisionTrailOf(d6Draft, loop).map((draft) => draft.number)).toEqual([5, 6])
   })
 })
