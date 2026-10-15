@@ -348,7 +348,12 @@ async function openWholeInput(state: State, host: Host, identity: string, key: s
 
 // The real element types, so the typecheck refuses a prop the engine would refuse. One unknown
 // prop drops the whole tree with no message. `Text` takes no `key`.
-type Ui = Pick<Elements['terminal'], 'Box' | 'Button' | 'Text' | 'Input' | 'Client'>
+//
+// The pane draws on the terminal and on Claude Code Desktop: both tables have these five
+// elements, `Client` included, and a desktop `Client` takes the pointer in cells as the terminal
+// does. Other surfaces go to `next(e)`.
+type DrawnSurface = 'terminal' | 'desktop'
+type Ui = Pick<Elements[DrawnSurface], 'Box' | 'Button' | 'Text' | 'Input' | 'Client'>
 
 function commentRowOf(ui: Ui, key: string, quote: string, comment: string, onRemove: () => void): RenderElement {
   const { Box, Button, Text } = ui
@@ -666,7 +671,7 @@ export function register(on: On) {
 
   on('ui.render', { component: 'Pane' }, async ($, e, next) => {
     if (e.requestId !== PANE_ID || state.host === null) return next(e)
-    if (e.surface !== 'terminal') return next(e)
+    if (e.surface !== 'terminal' && e.surface !== 'desktop') return next(e)
     const { Box, Button, Text, Input, Client } = await $.ui.resolve(e)
     return paneOf({ Box, Button, Text, Input, Client }, state, state.host, e.props.bodyColumns, e.props.scroll.bodyRows)
   })

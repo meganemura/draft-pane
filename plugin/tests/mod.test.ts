@@ -4,10 +4,9 @@
 // through its `Host`, and every test drives the plugin the way the person does, through
 // `$.command.run`, `$.ui.render` and `$.ui.press`.
 //
-// The kit has no call for `ui.message` (a draft-selection.ts Client's post reaches the hooks
-// module only through the real engine), so the drag-to-comment path itself is covered in
-// feedback.test.ts as the plain functions it is built from; this file covers everything that
-// does not depend on it — opening, drawing, Approve and Submit.
+// `$.ui.render` and `$.ui.press` reach no `Client`, so the drag-to-comment path is covered in
+// feedback.test.ts as the plain functions it is built from. The one exception is the desktop
+// test at the end: `$.ui.mount` (in the 2.1.280 kit) drives the `Client`'s pointer.
 
 import type { CommandRunInput, On, RenderInput, SessionMessage, TurnCompleteInput } from 'claude-code'
 import { describe, expect, test, tier } from 'claude-code/testing'
@@ -110,7 +109,7 @@ function world(on: On, options: WorldOptions = {}) {
   on('ui.open', ($, e) => {
     opened.push(e.id)
     openCalls.push({ id: e.id, ...(e.focus ? { focus: e.focus } : {}) })
-    return { value: undefined }
+    return { value: { isPlaced: true } }
   })
   on('ui.close', ($, e) => {
     closed.push(e.id)
@@ -481,5 +480,62 @@ describe('mod', () => {
     await settle()
 
     expect(kept.submittedTexts.at(-1)).toBe('Feedback (draft-pane) on D5:\nfile: /work/notes/article.md\n(approved)')
+  })
+})
+
+// Claude Code Desktop draws the pane too, its `Client` included. The kit's `mount` draws the
+// pane on a surface it names and drives the `Client`'s pointer in cells, as a desktop reports
+// them, so here the drag-to-comment path runs end to end.
+const DESKTOP_PANE: RenderInput<'Pane'> = { ...PANE, surface: 'desktop' }
+
+// A drawn tree as JSON, less each element's `press` handle: the engine numbers handles per
+// render, so two renders of one tree differ there and nowhere else.
+function shapeOf(tree: unknown): string {
+  return JSON.stringify(tree, (key, value: unknown) => (key === 'press' ? undefined : value))
+}
+
+describe('mod on the desktop surface', () => {
+  test('the desktop draws the same tree as the terminal', async ($, on) => {
+    world(on, { messages: [D3_DRAFT] })
+    await $.session.start({ ...SESSION, surface: 'desktop' })
+    await $.command.run(RUN)
+
+    const desktop = await $.ui.render(DESKTOP_PANE)
+    expect(textOf(desktop)).toContain('D3')
+    expect(shapeOf(desktop)).toBe(shapeOf(await $.ui.render(PANE)))
+  })
+
+  test('a drag over the draft on the desktop opens the comment field, and Submit quotes the span', async ($, on) => {
+    const kept = world(on, { messages: [D3_DRAFT] })
+    await $.session.start({ ...SESSION, surface: 'desktop' })
+    await $.command.run(RUN)
+
+    const ui = await $.ui.mount({
+      plugin: PLUGIN,
+      surface: 'desktop',
+      component: 'Pane',
+      requestId: PLUGIN,
+      props: DESKTOP_PANE.props,
+      viewport: DESKTOP_PANE.viewport,
+    })
+    await ui.resize({ columns: 80, rows: 3, in: 'd0:seg0' })
+    // Row 2 is the body's third line. A drag from cell 4 to cell 24 covers its backquoted command.
+    await ui.pointer({ type: 'down', x: 4, y: 2, button: 'left', in: 'd0:seg0' })
+    await ui.pointer({ type: 'move', x: 24, y: 2, button: 'left', in: 'd0:seg0' })
+    await ui.pointer({ type: 'up', x: 24, y: 2, button: 'left', in: 'd0:seg0' })
+    await settle()
+    // The world answers `ui.invalidate` itself, so the mounted drawing is drawn again by hand.
+    await ui.redraw()
+
+    expect(await ui.find({ type: 'Input', key: 'd0:span-input' })).toBeDefined()
+    await ui.input({ key: 'd0:span-input', text: 'name the package manager' })
+    await ui.redraw()
+    await ui.press({ key: 'd0:submit' })
+    await settle()
+
+    const sent = kept.submittedTexts.at(-1) ?? ''
+    expect(sent).toContain('`npm install libfoo`')
+    expect(sent).toContain('name the package manager')
+    await ui.unmount()
   })
 })

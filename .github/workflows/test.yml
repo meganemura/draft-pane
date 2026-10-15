@@ -9,8 +9,9 @@ on:
 # actions, an exact version for npm packages) — see AGENTS.md's dependency rule. Bumping any of
 # them is a deliberate edit here, not an implicit "latest" resolution on every run.
 #
-# Claude Code 2.1.273 is the version grilling-pane and pull-request-pane pinned for the same
-# three gates. `claude plugin test` arrived in that version. See docs/decisions/0005.
+# Claude Code 2.1.280 is the version grilling-pane pins for the same three gates. Its test kit
+# draws a pane on the desktop surface and drives a `Client`'s pointer there. See
+# docs/decisions/0005 and 0008.
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -19,7 +20,7 @@ jobs:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: '22.23.2'
-      - run: npm install -g @anthropic-ai/claude-code@2.1.273
+      - run: npm install -g @anthropic-ai/claude-code@2.1.280
       # Writes .claude/types/claude-code.d.ts, which plugin/hooks/tsconfig.json includes.
       # Gated behind the same early-access flag the plugin itself needs (see AGENTS.md);
       # neither this nor any gate below calls the model, so no API credential is needed.

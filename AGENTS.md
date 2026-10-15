@@ -42,15 +42,17 @@ fixtures use invented drafts, never a real project's text.
   prompt that quotes the span. Nothing lives only in the pane.
 - Every `Pane` element prop must be one the surface declares. One unknown
   prop drops the whole tree without a message. Type the element constructors
-  with `Elements['terminal']` so the compiler catches it.
+  with `Elements['terminal' | 'desktop']`, the two surfaces the pane draws
+  on, so the compiler catches it.
 - Tests are `plugin/tests/*.test.ts`, run with
   `CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1 claude plugin test plugin`. They stub
   `session.messages`, `prompt.submit`, `ui.status` and `store`. The block
   parser, the feedback formatter and the span mapping are plain functions
-  with their own tests. The kit cannot type into an `Input`, drive a
-  `Client`'s pointer, or raise `ui.message`; each `Input` closure is one line
+  with their own tests. `$.ui.render` and `$.ui.press` cannot drive a
+  `Client`'s pointer or raise `ui.message`; each `Input` closure is one line
   that calls a pure function, and the `Client` module is tested with a
-  hand-rolled surface double.
+  hand-rolled surface double. One desktop test drives the drag end to end
+  through `$.ui.mount`.
 - Quality gates: `claude plugin validate plugin`, `npx -p typescript tsc -p
   plugin/hooks`, and the plugin tests. Run all three before a commit.
 - A real-terminal round (in tmux is fine) is a gate for any change to the
