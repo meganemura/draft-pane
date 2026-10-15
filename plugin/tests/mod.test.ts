@@ -10,6 +10,7 @@
 
 import type { CommandRunInput, On, RenderInput, SessionMessage, TurnCompleteInput } from 'claude-code'
 import { describe, expect, test, tier } from 'claude-code/testing'
+import type { Engine } from 'claude-code/testing'
 
 tier('user')
 
@@ -494,15 +495,135 @@ function shapeOf(tree: unknown): string {
   return JSON.stringify(tree, (key, value: unknown) => (key === 'press' ? undefined : value))
 }
 
+// A desktop drawing of the pane for the current state, mounted on its own so a test can press
+// and find in it. The world answers `ui.invalidate` itself, so a test calls `redraw` by hand.
+async function mountDesktop($: Engine) {
+  return $.ui.mount({
+    plugin: PLUGIN,
+    surface: 'desktop',
+    component: 'Pane',
+    requestId: PLUGIN,
+    props: DESKTOP_PANE.props,
+    viewport: DESKTOP_PANE.viewport,
+  })
+}
+
+// A plain draft in its own message, revised by D7 in a later one: both inline, so the desktop
+// can diff the two bodies.
+const D6_DRAFT: SessionMessage = assistant(['```draft', 'D6: a made-up release note', 'Fixes the cache.', 'Adds a flag.', '```'].join('\n'))
+const D7_REVISION: SessionMessage = assistant(
+  ['```draft', 'D7 (revises D6): a made-up release note, v2', 'Fixes the cache on write.', 'Adds a flag.', '```'].join('\n'),
+)
+
+// A file draft whose file is code, not prose.
+const D8_CODE_FILE_DRAFT: SessionMessage = assistant(['```draft', 'D8: a made-up helper', 'file: /work/src/helper.ts', '```'].join('\n'))
+
 describe('mod on the desktop surface', () => {
-  test('the desktop draws the same tree as the terminal', async ($, on) => {
+  test('the terminal tree has no desktop element, and the desktop draws a card with tabs', async ($, on) => {
     world(on, { messages: [D3_DRAFT] })
     await $.session.start({ ...SESSION, surface: 'desktop' })
     await $.command.run(RUN)
 
-    const desktop = await $.ui.render(DESKTOP_PANE)
-    expect(textOf(desktop)).toContain('D3')
-    expect(shapeOf(desktop)).toBe(shapeOf(await $.ui.render(PANE)))
+    const terminal = await $.ui.render(PANE)
+    expect(shapeOf(terminal)).not.toContain('"Svg"')
+    expect(buttonsOf(terminal).some((button) => button.key.includes(':view:'))).toBe(false)
+
+    const ui = await mountDesktop($)
+    expect((await ui.find({ key: 'd0' }))?.props.borderStyle).toBe('round')
+    expect(await ui.find({ type: 'Text', text: '3 lines · 6 words · 37 chars' })).toBeDefined()
+    expect(await ui.find({ type: 'Button', key: 'd0:view:comment' })).toBeDefined()
+    expect(await ui.find({ type: 'Button', key: 'd0:view:preview' })).toBeDefined()
+    expect(await ui.find({ type: 'Button', key: 'd0:view:changes' })).toBeUndefined()
+    expect((await ui.find({ type: 'Client', key: 'd0:seg0' }))?.props.props).toEqual({ lines: ['## Install', '', 'Run `npm install libfoo`.'] })
+    await ui.unmount()
+  })
+
+  test('Preview draws the body as markdown, with no Client', async ($, on) => {
+    world(on, { messages: [D3_DRAFT] })
+    await $.session.start({ ...SESSION, surface: 'desktop' })
+    await $.command.run(RUN)
+
+    const ui = await mountDesktop($)
+    await ui.press({ key: 'd0:view:preview' })
+    await ui.redraw()
+
+    expect((await ui.find({ type: 'Markdown', key: 'd0:preview' }))?.props.text).toBe('## Install\n\nRun `npm install libfoo`.')
+    expect(await ui.find({ type: 'Client' })).toBeUndefined()
+    await ui.press({ key: 'd0:view:comment' })
+    await ui.redraw()
+    expect(await ui.find({ type: 'Client', key: 'd0:seg0' })).toBeDefined()
+    await ui.unmount()
+  })
+
+  test('a revision draws its trail and a Changes view with the diff against the draft it revises', async ($, on) => {
+    world(on, { messages: [D6_DRAFT, D7_REVISION] })
+    await $.session.start({ ...SESSION, surface: 'desktop' })
+    await $.command.run(RUN)
+
+    const ui = await mountDesktop($)
+    expect((await ui.find({ type: 'Svg' }))?.props.alt).toBe('Revisions: D6, D7')
+    expect(await ui.find({ type: 'Text', text: 'revises D6' })).toBeDefined()
+    expect((await ui.find({ type: 'Button', key: 'd0:view:changes' }))?.props.label).toBe('Changes from D6  +1 −1')
+
+    await ui.press({ key: 'd0:view:changes' })
+    await ui.redraw()
+    const code = await ui.find({ type: 'Code' })
+    expect(code?.props.format).toBe('diff')
+    expect(code?.props.source).toBe('@@ -1,2 +1,2 @@\n-Fixes the cache.\n+Fixes the cache on write.\n Adds a flag.')
+    await ui.unmount()
+  })
+
+  test('a committed span shows as a card and as a mark on the comment map', async ($, on) => {
+    const kept = world(on, { messages: [D3_DRAFT] })
+    await $.session.start({ ...SESSION, surface: 'desktop' })
+    await $.command.run(RUN)
+
+    const ui = await mountDesktop($)
+    expect(await ui.find({ type: 'Svg' })).toBeUndefined()
+    await ui.resize({ columns: 80, rows: 3, in: 'd0:seg0' })
+    await ui.pointer({ type: 'down', x: 0, y: 0, button: 'left', in: 'd0:seg0' })
+    await ui.pointer({ type: 'up', x: 10, y: 0, button: 'left', in: 'd0:seg0' })
+    await settle()
+    await ui.redraw()
+    await ui.input({ key: 'd0:span-input', text: 'say what it installs', kind: 'submit' })
+    await ui.redraw()
+
+    const card = await ui.find({ key: 'd0:c0' })
+    expect(card?.props.borderStyle).toBe('round')
+    expect(await ui.find({ type: 'Text', text: '“## Install”' })).toBeDefined()
+    expect((await ui.find({ type: 'Svg' }))?.props.alt).toBe('Where the 1 comment falls in the draft')
+    expect((await ui.find({ type: 'Button', key: 'd0:submit' }))?.props.label).toBe('Submit 1 comment')
+
+    await ui.press({ key: 'd0:submit' })
+    await settle()
+    expect(kept.submittedTexts.at(-1)).toBe('Feedback (draft-pane) on D3:\n> ## Install\nsay what it installs')
+    await ui.unmount()
+  })
+
+  test('a file draft links its file, and a code file previews as code', async ($, on) => {
+    world(on, { messages: [D8_CODE_FILE_DRAFT], files: { '/work/src/helper.ts': 'export const one = 1' } })
+    await $.session.start({ ...SESSION, surface: 'desktop' })
+    await $.command.run(RUN)
+
+    const ui = await mountDesktop($)
+    expect(await ui.find({ type: 'Markdown', text: /file:\/\/\/work\/src\/helper\.ts/ })).toBeDefined()
+    await ui.press({ key: 'd0:view:preview' })
+    await ui.redraw()
+    const code = await ui.find({ type: 'Code' })
+    expect(code?.props.path).toBe('/work/src/helper.ts')
+    expect(code?.props.source).toBe('export const one = 1')
+    await ui.unmount()
+  })
+
+  test('the empty desktop pane draws a picture and a hint', async ($, on) => {
+    world(on, { messages: [] })
+    await $.session.start({ ...SESSION, surface: 'desktop' })
+    await $.command.run(RUN)
+
+    const ui = await mountDesktop($)
+    expect((await ui.find({ type: 'Svg' }))?.props.alt).toBe('A blank sheet')
+    expect(await ui.find({ type: 'Text', text: 'No open drafts' })).toBeDefined()
+    await ui.unmount()
   })
 
   test('a drag over the draft on the desktop opens the comment field, and Submit quotes the span', async ($, on) => {
