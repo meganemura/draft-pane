@@ -18,7 +18,9 @@
 // written — block.ts owns that syntax, and this file only calls its exported functions; how a
 // drag maps to a character range — draft-selection.ts owns that, and this file only reads what
 // it posts; how a body splits into segments or how an offset moves between a segment's own text
-// and the whole body — segments.ts owns that, and this file only calls its exported functions.
+// and the whole body — segments.ts owns that, and this file only calls its exported functions;
+// how the desktop tree looks — desktop.ts owns that, and this file only gives it each draft's
+// data and closures (`desktopDraftModelOf`).
 //
 // It loads only where Claude Code has function hooks enabled. The engine's validator reads this
 // file statically, so every call on `$` is spelled `$.noun.event(...)` and `$` is handed only
@@ -28,7 +30,7 @@
 // alone and never reads the transcript itself.
 
 import type { Elements, On, RenderElement, SessionMessage } from 'claude-code'
-import { approvalTextOf, feedbackTextOf, identityOf, openDraftsOf, trimmedBodyOf } from './block'
+import { approvalTextOf, draftsByNumberOf, feedbackTextOf, identityOf, openDraftsOf, revisionTrailOf, trimmedBodyOf } from './block'
 import type { Draft, OpenDraft } from './block'
 import {
   EMPTY_FEEDBACK,
@@ -49,6 +51,9 @@ import {
 import type { Feedback } from './feedback'
 import { anchorLineOf, segmentsOf, toAbsolute, toLocal } from './segments'
 import type { Segment } from './segments'
+import { desktopDraftOf, desktopEmptyOf, fileHrefOf } from './desktop'
+import type { DesktopDraft, DesktopUi, View } from './desktop'
+import { unifiedDiffOf } from './diff'
 
 const PANE_ID = 'draft-pane'
 const COMMAND = 'draft-pane'
@@ -86,6 +91,11 @@ type State = {
   // A file draft's read failure, by identity, computed from the draft as left after the failed
   // read (empty body). Drawn in place of the body; cleared once that identity is no longer open.
   readErrors: Map<string, string>
+  // Every draft in the transcript by number (block.ts's `draftsByNumberOf`), kept so the desktop
+  // can draw a revision's trail and its diff against the draft it revises.
+  history: Map<number, Draft>
+  // The desktop view each open draft shows, by identity; absent means `comment`.
+  views: Map<string, View>
 }
 
 // The host is a bundle of closures over `$`, built once at `session.start`, so the rest of this
@@ -198,7 +208,9 @@ async function reparse(state: State): Promise<void> {
   const host = state.host
   if (host === null) return
   try {
-    state.open = openDraftsOf(await host.messages())
+    const messages = await host.messages()
+    state.open = openDraftsOf(messages)
+    state.history = draftsByNumberOf(messages)
     await Promise.all(state.open.map((od) => readFileDraft(state, host, od.draft)))
     const openIdentities = new Set(state.open.map((od) => identityOf(od.draft)))
     for (const identity of state.feedback.keys()) {
@@ -206,6 +218,9 @@ async function reparse(state: State): Promise<void> {
     }
     for (const identity of state.readErrors.keys()) {
       if (!openIdentities.has(identity)) state.readErrors.delete(identity)
+    }
+    for (const identity of state.views.keys()) {
+      if (!openIdentities.has(identity)) state.views.delete(identity)
     }
     host.invalidate()
     await openIfWanted(state)
@@ -349,9 +364,10 @@ async function openWholeInput(state: State, host: Host, identity: string, key: s
 // The real element types, so the typecheck refuses a prop the engine would refuse. One unknown
 // prop drops the whole tree with no message. `Text` takes no `key`.
 //
-// The pane draws on the terminal and on Claude Code Desktop: both tables have these five
-// elements, `Client` included, and a desktop `Client` takes the pointer in cells as the terminal
-// does. Other surfaces go to `next(e)`.
+// This tree is the terminal's. The desktop draws its own tree (desktop.ts) from the same state
+// and the same transitions; it uses the same five elements and adds `Svg`, `Markdown` and
+// `Code`. `Ui` stays typed for both surfaces, so a prop that this tree uses is one that both
+// declare. Other surfaces go to `next(e)`.
 type DrawnSurface = 'terminal' | 'desktop'
 type Ui = Pick<Elements[DrawnSurface], 'Box' | 'Button' | 'Text' | 'Input' | 'Client'>
 
@@ -559,6 +575,78 @@ function paneOf(ui: Ui, state: State, host: Host, bodyColumns: number, bodyRows:
   })
 }
 
+// The diff a desktop `Changes` view shows: this draft's body against the body of the draft it
+// revises. Null when there is nothing to compare. A file draft's earlier text is not in the
+// transcript (the file has changed since), so a file draft on either side has no diff.
+function revisionDiffOf(trail: readonly Draft[]): string | null {
+  const draft = trail.at(-1)
+  const earlier = trail.at(-2)
+  if (draft === undefined || earlier === undefined || draft.file !== null || earlier.file !== null) return null
+  return unifiedDiffOf(earlier.body, draft.body)
+}
+
+function setView(state: State, host: Host, identity: string, view: View): void {
+  state.views.set(identity, view)
+  host.invalidate()
+}
+
+// One open draft as desktop.ts takes it: the data to draw, and a closure for each control that
+// calls the same transitions the terminal tree calls.
+function desktopDraftModelOf(index: number, openDraft: OpenDraft, state: State, host: Host): DesktopDraft {
+  const { draft, isDuplicate } = openDraft
+  const identity = identityOf(draft)
+  const feedback = feedbackOf(state, identity)
+  const key = `d${index}`
+  const trail = revisionTrailOf(draft, state.history)
+  const diff = revisionDiffOf(trail)
+  const stored = state.views.get(identity) ?? 'comment'
+  // A `changes` view left over from an earlier parse falls back to `comment` when there is no
+  // diff to show any more.
+  const view: View = stored === 'changes' && diff === null ? 'comment' : stored
+  const logged = (label: string) => (error: unknown) => host.log(`${label} failed: ${messageOf(error)}`)
+  return {
+    key,
+    draft,
+    isDuplicate,
+    feedback,
+    readError: state.readErrors.get(identity),
+    view,
+    trail,
+    diff,
+    fileHref: draft.file === null ? null : fileHrefOf(draft.file, state.cwd),
+    segments: segmentsForDraft(draft, feedback),
+    actions: {
+      setView: (next) => setView(state, host, identity, next),
+      removeSpan: (spanIndex) => onSpanRemove(state, host, identity, spanIndex),
+      removeWhole: () => onWholeRemove(state, host, identity),
+      openWhole: () => {
+        openWholeInput(state, host, identity, `${key}:whole-input`).catch(logged('focus'))
+      },
+      spanInput: (text) => onSpanTextInput(state, host, identity, text),
+      spanSubmit: (text) => onSpanTextSubmit(state, host, identity, text),
+      wholeInput: (text) => onWholeTextInput(state, host, identity, text),
+      wholeSubmit: (text) => onWholeTextSubmit(state, host, identity, text),
+      approve: () => {
+        approve(state, host, draft).catch(logged('submit'))
+      },
+      submit: () => {
+        submit(state, host, draft).catch(logged('submit'))
+      },
+    },
+  }
+}
+
+function desktopPaneOf(ui: DesktopUi, state: State, host: Host): RenderElement {
+  const visible = visibleOf(state)
+  if (visible.length === 0) return desktopEmptyOf(ui)
+  return ui.Box({
+    key: PANE_ID,
+    flexDirection: 'column',
+    rowGap: 1,
+    children: visible.map((openDraft, index) => desktopDraftOf(ui, desktopDraftModelOf(index, openDraft, state, host))),
+  })
+}
+
 export function register(on: On) {
   const state: State = {
     host: null,
@@ -570,6 +658,8 @@ export function register(on: On) {
     sent: new Set(),
     isSubmitting: false,
     readErrors: new Map(),
+    history: new Map(),
+    views: new Map(),
   }
 
   on('session.start', async ($, e, next) => {
@@ -671,7 +761,11 @@ export function register(on: On) {
 
   on('ui.render', { component: 'Pane' }, async ($, e, next) => {
     if (e.requestId !== PANE_ID || state.host === null) return next(e)
-    if (e.surface !== 'terminal' && e.surface !== 'desktop') return next(e)
+    if (e.surface === 'desktop') {
+      const { Box, Button, Text, Input, Client, Svg, Markdown, Code } = await $.ui.resolve(e)
+      return desktopPaneOf({ Box, Button, Text, Input, Client, Svg, Markdown, Code }, state, state.host)
+    }
+    if (e.surface !== 'terminal') return next(e)
     const { Box, Button, Text, Input, Client } = await $.ui.resolve(e)
     return paneOf({ Box, Button, Text, Input, Client }, state, state.host, e.props.bodyColumns, e.props.scroll.bodyRows)
   })

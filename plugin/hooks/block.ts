@@ -217,3 +217,32 @@ export function approvalTextOf(draft: Draft): string {
   const fileLine = fileLineOf(draft)
   return [headerOf(draft), ...(fileLine === null ? [] : [fileLine]), APPROVED].join('\n')
 }
+
+// Every draft in every assistant message, by number. When a number occurs more than once, the
+// latest occurrence wins: the pane uses this map only to find what a revision replaced, and the
+// newest text under a number is the text the person last saw under it.
+export function draftsByNumberOf(messages: readonly SessionMessage[]): Map<number, Draft> {
+  const byNumber = new Map<number, Draft>()
+  for (const message of messages) {
+    if (message.role !== 'assistant') continue
+    for (const draft of draftsOf(message.text)) byNumber.set(draft.number, draft)
+  }
+  return byNumber
+}
+
+// The chain of drafts that `draft` revises, oldest first, with `draft` itself last. The walk
+// stops at a number the map does not have, and at a number it already visited, so a model that
+// writes a loop of `revises` lines cannot make it run forever.
+export function revisionTrailOf(draft: Draft, byNumber: ReadonlyMap<number, Draft>): Draft[] {
+  const trail: Draft[] = [draft]
+  const seen = new Set<number>([draft.number])
+  let revises = draft.revises
+  while (revises !== null && !seen.has(revises)) {
+    const earlier = byNumber.get(revises)
+    if (earlier === undefined) break
+    trail.unshift(earlier)
+    seen.add(revises)
+    revises = earlier.revises
+  }
+  return trail
+}
