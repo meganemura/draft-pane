@@ -175,3 +175,7 @@ test plugin`.
 ## License
 
 MIT. See [LICENSE](LICENSE).
+
+---
+
+[Japanese](README.ja.md)

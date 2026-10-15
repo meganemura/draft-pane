@@ -23,6 +23,8 @@ dependency.
 The layer is public-possible: commit messages, comments, README and docs
 are in English. Follow ASD-STE100 Simplified Technical English. Test
 fixtures use invented drafts, never a real project's text.
+`README.ja.md` is the Japanese translation of `README.md`. The English
+README ends with a link to it. Change both in the same commit.
 
 ## Rules
 
