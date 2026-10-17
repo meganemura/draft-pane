@@ -4,7 +4,7 @@
 
 [![test](https://github.com/meganemura/draft-pane/actions/workflows/test.yml/badge.svg)](https://github.com/meganemura/draft-pane/actions/workflows/test.yml)
 
-Claude Code の plugin（Claude Mod）である。skill の `draft-pane:draft` は、頼まれた下書きを Claude に
+Claude Code の plugin（mod）である。skill の `draft-pane:draft` は、頼まれた下書きを Claude に
 ブロックの中へ書かせる。ペインは、まだ返事をしていない最新の下書きを表示する。利用者は、範囲をドラッグして
 コメントを書く、下書き全体に 1 つコメントを書く、または承認する。1 回の Submit で、すべてのコメントを、
 各範囲を引用した 1 つのプロンプトとして送る。目的は、その場でフィードバックを返し、往復の回数を減らすこと
@@ -25,7 +25,8 @@ comment: [        ]
 
 ## 必要なもの
 
-- Claude Code 2.1.273 以降と、`CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1`
+- Claude Code 2.1.273 以降。Claude Code 2.1.287 以降は mod を標準で読み込む。それより古い版では
+  `CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1` を設定する。
 - ターミナルのセッション、または Claude Code Desktop の Code タブ。プリントモード（`-p`）にはペインが無い。
 
 ## インストール
@@ -38,17 +39,7 @@ claude plugin install draft-pane@draft-pane
 チェックアウトした作業ツリーで開発するときは、その作業ツリーから plugin を読み込む。
 
 ```sh
-CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1 claude --plugin-dir /path/to/draft-pane/plugin
-```
-
-`CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1` を毎回のセッションで設定するには、`settings.json` の `env` に書く。
-
-```json
-{
-  "env": {
-    "CLAUDE_CODE_ENABLE_FUNCTION_HOOKS": "1"
-  }
-}
+claude --plugin-dir /path/to/draft-pane/plugin
 ```
 
 ### Claude Code Desktop

@@ -6,8 +6,8 @@ Context for agents that work in this repository.
 
 draft-pane, a Claude Code plugin with two parts. A skill tells the model to
 write any requested draft (a README section, a commit message, a document
-paragraph, a reply) in a block the pane can read. A hooks module (a "Claude
-Mod") reads the newest open draft from the transcript, draws it in a pane
+paragraph, a reply) in a block the pane can read. A hooks module (a
+mod) reads the newest open draft from the transcript, draws it in a pane
 beside the transcript, and lets the person give feedback on it: drag over a
 span and type a comment, type one comment on the whole draft, or approve
 it. One Submit sends all feedback as one prompt that quotes each span.
@@ -28,8 +28,10 @@ README ends with a link to it. Change both in the same commit.
 
 ## Rules
 
-- Function hooks are early access. The module loads only where
-  `CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1` is set. The API can change between
+- Mods are early access. Claude Code 2.1.287 and later load them by
+  default; CI pins 2.1.280, where the module loads only with
+  `CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1`, so the CI and test commands set
+  it. The API can change between
   releases. The types come from `/plugin-types`, which writes
   `.claude/types/claude-code.d.ts` at the repository root; that directory is
   gitignored, so run `/plugin-types` once in a new checkout.

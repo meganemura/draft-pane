@@ -2,7 +2,7 @@
 
 [![test](https://github.com/meganemura/draft-pane/actions/workflows/test.yml/badge.svg)](https://github.com/meganemura/draft-pane/actions/workflows/test.yml)
 
-A Claude Code plugin (a Claude Mod). Its skill, `draft-pane:draft`, makes Claude write a
+A Claude Code plugin (a mod). Its skill, `draft-pane:draft`, makes Claude write a
 requested draft inside a block. The pane shows the newest open draft. The person drags over a
 span and types a comment, types one comment on the whole draft, or approves it. One Submit sends
 every comment as one prompt that quotes each span. The aim is feedback in place, with fewer
@@ -23,7 +23,8 @@ comment: [        ]
 
 ## Requirements
 
-- Claude Code 2.1.273 or later, with `CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1`
+- Claude Code 2.1.273 or later. Claude Code 2.1.287 and later load mods by default. On an older
+  version, set `CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1`.
 - A terminal session, or the Code tab of Claude Code Desktop. Print mode (`-p`) has no pane.
 
 ## Install
@@ -36,18 +37,7 @@ claude plugin install draft-pane@draft-pane
 To develop against a checkout, run the plugin from its working tree:
 
 ```sh
-CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1 claude --plugin-dir /path/to/draft-pane/plugin
-```
-
-To set `CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1` for each session, add it to the `env` of
-`settings.json`:
-
-```json
-{
-  "env": {
-    "CLAUDE_CODE_ENABLE_FUNCTION_HOOKS": "1"
-  }
-}
+claude --plugin-dir /path/to/draft-pane/plugin
 ```
 
 ### Claude Code Desktop
